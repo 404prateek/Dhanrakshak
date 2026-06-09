@@ -1,0 +1,1 @@
+# Security event logger for SOC alerts
