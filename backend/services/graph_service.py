@@ -1,1 +1,0 @@
-# Handles Neo4j entity relationship queries

@@ -1,1 +1,0 @@
-// Invisible component collecting browser events

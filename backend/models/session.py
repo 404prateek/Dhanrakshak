@@ -1,1 +1,0 @@
-# Pydantic schema for behavioral session payload
