@@ -1,1 +1,0 @@
-# Pydantic schema for document input/output

@@ -1,1 +1,0 @@
-// TypeScript types for document payloads
