@@ -33,11 +33,13 @@ htmlcov/
 # ---------------------------------------------------------------------------
 ml_engine/training/checkpoints/
 ml_engine/training/datasets/
+backend/cedar/
 *.pt
 *.pth
 *.ckpt
 *.onnx
 *.bin
+*.zip
 
 # ---------------------------------------------------------------------------
 # Node / frontend
