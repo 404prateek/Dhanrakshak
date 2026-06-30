@@ -1,42 +1,52 @@
 # DhanRakshak — AI-Powered Fraud Detection Platform
 
-DhanRakshak is a real-time document forgery and behavioral anomaly detection system designed for financial institutions and insurance underwriters. It combines forensic vision, NLP-based document extraction, behavioral biometrics, and graph-based entity analysis into a unified trust score.
+DhanRakshak is a real-time document forgery and behavioral anomaly detection system designed for financial institutions and insurance underwriters. It combines forensic vision (TruFor), OCR-based document extraction, mathematical reconciliation, behavioral biometrics, and local LLM-based intelligent reporting into a unified trust score.
 
 ---
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
-│                      Frontend (React + TypeScript)       │
-│  DocumentUpload · RiskDashboard · BehaviorTracker        │
+│                      Frontend (React + Vite)            │
+│  CaseManagement · ML Investigation · FraudReports       │
 └───────────────────────┬─────────────────────────────────┘
-                        │ REST + WebSocket
+                        │ REST API
 ┌───────────────────────▼─────────────────────────────────┐
-│                   Backend (FastAPI)                      │
-│  /document · /session · /risk · /health                  │
-└──────┬──────────────┬──────────────┬────────────────────┘
-       │              │              │
-┌──────▼──────┐ ┌─────▼──────┐ ┌────▼───────┐
-│  ML Engine  │ │ PostgreSQL │ │   Neo4j    │
-│  (Python)   │ │  (async)   │ │  (graph)   │
-└─────────────┘ └────────────┘ └────────────┘
+│                   Backend (FastAPI)                     │
+│  /api/v1/cases · /api/v1/ml/analyze · /api/v1/reports   │
+└──────┬────────────────────────────────┬─────────────────┘
+       │                                │
+┌──────▼───────────────────┐     ┌──────▼────────────────┐
+│      ML Engine (Python)  │     │      Database         │
+│  TruFor · OCR · Ollama   │     │  SQLite / SQLAlchemy  │
+└──────────────────────────┘     └───────────────────────┘
 ```
 
 ### ML Engine Modules
 
 | Module | Purpose |
 |---|---|
-| `forensic_vision/ela_detector` | Error Level Analysis — detects tampered image regions |
-| `forensic_vision/forgery_classifier` | EfficientNet-B0 binary forgery classifier |
-| `forensic_vision/signature_verifier` | Siamese network for signature comparison |
-| `ocr_nlp/layoutlm_extractor` | LayoutLMv3 document entity extraction (name, DOB, property ID) |
-| `ocr_nlp/ner_pipeline` | spaCy NER for structured field extraction |
-| `behavioral_twin/feature_extractor` | Computes feature vector from browser events |
-| `behavioral_twin/isolation_forest` | Isolation Forest anomaly scoring |
-| `behavioral_twin/panic_detector` | Rule-based duress / panic detection |
-| `trust_engine/score_fusion` | Weighted fusion of all module scores → final risk level |
-| `trust_engine/shap_explainer` | SHAP-based human-readable explanations |
+| `forensic_vision/trufor_wrapper.py` | State-of-the-art TruFor image tampering & forgery detection |
+| `forensic_vision/metadata_analyzer.py` | EXIF and PDF metadata inspection for manipulation artifacts |
+| `ocr_nlp/document_ocr.py` | Extracts text and named entities (PAN, Names, Dates) |
+| `ocr_nlp/math_reconciler.py` | Validates that line-item financial amounts sum correctly |
+| `ocr_nlp/benford_checker.py` | Verifies financial figures against Benford's Law |
+| `behavioral_twin/behavior_analyzer.py` | Detects anomalous user behavior based on mouse/keyboard telemetry |
+| `trust_engine/score_fusion.py` | Intelligent weighted fusion of all module scores → final risk level |
+| `llm_reporter/ollama_reporter.py` | Generates natural-language fraud narratives using local Llama 3.2 |
+| `pipeline.py` | Multi-threaded coordinator that executes the above modules in parallel |
+
+---
+
+## Key Features Added Recently
+
+- **Local LLM Integration (Ollama):** The platform now uses `llama3.2:1b` running locally to generate human-readable fraud reports instantly without sending sensitive PII to external APIs.
+- **Advanced Forensics:** Replaced legacy models with **TruFor**, a state-of-the-art pixel-level tampering detector that provides heatmaps of forged areas.
+- **Enterprise UI Refactor:** The frontend has been completely redesigned with a modern, clean, bank-grade aesthetic, prioritizing the document viewer and ML analysis results.
+- **Cross-Document Analysis:** Ability to select two documents side-by-side and cross-validate extracted entities (e.g., checking if the PAN on an ITR matches the PAN on an Aadhaar card).
+- **Parallel Pipeline:** The backend ML engine now executes the heavy Forensic, OCR, and Behavioral scans in parallel threads, reducing analysis time significantly.
+- **Robust Timeouts & Fallbacks:** Graceful handling of slow CPUs. If the LLM is busy or models take too long, the system seamlessly falls back to template-based reporting without crashing.
 
 ---
 
@@ -46,10 +56,7 @@ DhanRakshak is a real-time document forgery and behavioral anomaly detection sys
 |---|---|
 | Python | 3.11 |
 | Node.js | 20 LTS |
-| Docker + Docker Compose | 24 |
-| Tesseract OCR | 5.x |
-| PostgreSQL | 15 |
-| Neo4j | 5 |
+| Ollama | Latest (requires `llama3.2:1b` model) |
 
 ---
 
@@ -66,34 +73,42 @@ cd Dhanrakshak
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in all required values (see .env.example for keys)
+# Set up your environment variables if necessary
 ```
 
-### 3. Backend
+### 3. Backend & ML Setup
 
 ```bash
 cd backend
 python -m venv .venv
+
 # Windows
 .venv\Scripts\activate
 # macOS / Linux
 source .venv/bin/activate
 
+# Install dependencies (requires PyTorch)
+pip install -r ../requirements_ml.txt
 pip install -r requirements.txt
 
-# Download spaCy English model
-python -m spacy download en_core_web_sm
-
-# Run database migrations
-alembic upgrade head
+# Seed the local SQLite database
+python seed_db.py
+python create_admin.py
 
 # Start the API server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
 API docs available at `http://localhost:8000/docs`
 
-### 4. Frontend
+### 4. Ollama LLM Setup (Required for AI Reports)
+
+In a separate terminal, pull and start the local Llama model:
+```bash
+ollama pull llama3.2:1b
+ollama run llama3.2:1b
+```
+
+### 5. Frontend
 
 ```bash
 cd frontend
@@ -103,103 +118,13 @@ npm run dev
 
 App available at `http://localhost:5173`
 
-### 5. Run with Docker (recommended)
-
-```bash
-docker compose -f infra/docker-compose.yml up --build
-```
-
-Services started:
-- **backend** → `http://localhost:8000`
-- **frontend** → `http://localhost:5173`
-- **PostgreSQL** → `localhost:5432`
-- **Neo4j** → `http://localhost:7474` (browser UI)
-- **Redis** → `localhost:6379`
-
 ---
 
-## Environment Variables
+## Security & Architecture Notes
 
-Copy `.env.example` to `.env` and fill in the values:
-
-| Variable | Description |
-|---|---|
-| `POSTGRES_URL` | Async PostgreSQL connection string |
-| `NEO4J_URI` | Neo4j bolt URI |
-| `NEO4J_USER` | Neo4j username |
-| `NEO4J_PASS` | Neo4j password |
-| `JWT_SECRET_KEY` | Secret key for JWT token signing |
-| `JWT_ALGORITHM` | JWT algorithm (default: `HS256`) |
-| `JWT_EXPIRE_MINUTES` | Token expiry in minutes (default: `60`) |
-| `TRUST_WEIGHT_DOC_FORENSIC` | Weight for forensic score (default: `0.45`) |
-| `TRUST_WEIGHT_BEHAVIORAL` | Weight for behavioral score (default: `0.35`) |
-| `TRUST_WEIGHT_GRAPH_ANOMALY` | Weight for graph anomaly score (default: `0.20`) |
-| `RISK_THRESHOLD_HIGH` | Score above which risk is HIGH (default: `0.65`) |
-| `RISK_THRESHOLD_MEDIUM` | Score above which risk is MEDIUM (default: `0.35`) |
-| `DHANRAKSHAK_IF_CONTAMINATION` | Isolation Forest contamination rate (default: `auto`) |
-
----
-
-## API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/document/upload` | Upload document image for forensic analysis |
-| `POST` | `/session/ingest` | Submit behavioral feature vector |
-| `GET` | `/risk/{session_id}` | Retrieve final risk score and audit trail |
-| `GET` | `/health` | Health check |
-
----
-
-## Project Structure
-
-```
-Dhanrakshak/
-├── backend/               FastAPI app, routers, services, models, DB
-├── ml_engine/             All ML modules (forensic, NLP, behavioral, trust)
-│   ├── forensic_vision/
-│   ├── ocr_nlp/
-│   ├── behavioral_twin/
-│   ├── trust_engine/
-│   └── training/          Training scripts, datasets/, checkpoints/
-├── frontend/              React + TypeScript UI
-│   └── src/
-│       ├── components/
-│       ├── services/      API client, BehaviorCollector, WebSocket
-│       └── types/
-├── cybersecurity/         JWT auth, AES encryption, audit log, rate limiter
-├── infra/                 Docker Compose, Dockerfiles, nginx config
-├── .env.example
-├── .gitignore
-├── pyproject.toml
-└── README.md
-```
-
----
-
-## Training Custom Models
-
-```bash
-# Train forgery classifier (EfficientNet-B0)
-python ml_engine/training/train_forensic.py
-
-# Train behavioral anomaly models (Isolation Forest + LSTM)
-python ml_engine/training/train_behavioral.py
-```
-
-Place training datasets in `ml_engine/training/datasets/`.  
-Saved model weights go to `ml_engine/training/checkpoints/`.  
-Both directories are git-ignored.
-
----
-
-## Security Notes
-
-- Raw browser events are **never sent to the server** — only computed feature vectors leave the client (`BehaviorCollector` privacy-first design).
-- All document uploads are hashed and AES-encrypted before storage (`cybersecurity/encryption.py`).
-- Every risk decision is written to an immutable audit log (`cybersecurity/audit_trail.py`).
-- API endpoints are protected by JWT with role-based access control (`cybersecurity/api_auth.py`).
-- Model weights are loaded with `weights_only=True` to prevent arbitrary pickle execution.
+- **Offline ML Processing:** All machine learning models, including the LLM, run locally. **No sensitive financial documents are sent to cloud providers.**
+- **Module Cleanup:** Deprecated and stubbed modules (like legacy Neo4j, empty cybersecurity folders, and unused mock services) have been aggressively purged to keep the codebase clean and production-ready.
+- **JWT Auth:** API endpoints are protected by JWT tokens. Use the `create_admin.py` script to generate your first login credentials.
 
 ---
 
