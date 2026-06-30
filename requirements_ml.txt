@@ -1,0 +1,36 @@
+# DhanRakshak ML Engine — requirements.txt
+# Install: pip install -r requirements.txt
+
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+timm>=0.9.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+shap>=0.43.0
+joblib>=1.3.0
+
+# OCR
+paddleocr>=2.7.0
+paddlepaddle>=2.5.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
+# NLP
+spacy>=3.6.0
+rapidfuzz>=3.0.0
+transformers>=4.35.0
+
+# Document processing
+PyMuPDF>=1.23.0
+pypdf>=3.0.0
+opencv-python-headless>=4.8.0
+
+# API
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+
+# Utils
+python-multipart>=0.0.6
+piexif>=1.1.3

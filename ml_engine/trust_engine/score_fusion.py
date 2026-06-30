@@ -15,11 +15,12 @@ try:
         RISK_THRESHOLD_MEDIUM,
     )
 except ModuleNotFoundError:  # allow standalone / test usage
-    TRUST_WEIGHT_DOC_FORENSIC  = 0.45
-    TRUST_WEIGHT_BEHAVIORAL    = 0.35
-    TRUST_WEIGHT_GRAPH_ANOMALY = 0.20
-    RISK_THRESHOLD_HIGH        = 0.65
-    RISK_THRESHOLD_MEDIUM      = 0.35
+    TRUST_WEIGHT_DOC_FORENSIC  = 0.60
+    TRUST_WEIGHT_BEHAVIORAL    = 0.30
+    TRUST_WEIGHT_GRAPH_ANOMALY = 0.10
+    RISK_THRESHOLD_HIGH        = 0.65   # was 0.45 — too aggressive; flagged clean docs
+    RISK_THRESHOLD_MEDIUM      = 0.35   # was 0.22 — any doc with weak signals hit MEDIUM
+
 
 
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
@@ -202,3 +203,312 @@ class AdaptiveTrustEngine:
             f"w_grph={self._w_grph:.3f}, "
             f"thresholds=[{self._threshold_medium}, {self._threshold_high}])"
         )
+
+
+# ---------------------------------------------------------------------------
+# TrustEngine — high-level façade used by the DhanRakshak pipeline
+# ---------------------------------------------------------------------------
+
+_RECOMMENDATION: Dict[str, str] = {
+    "LOW":    "APPROVE",
+    "MEDIUM": "MANUAL_REVIEW",
+    "HIGH":   "REJECT",
+}
+
+_OCR_SEVERITY_WEIGHT: Dict[str, float] = {
+    "HIGH":   1.0,
+    "MEDIUM": 0.6,
+    "LOW":    0.3,
+}
+
+
+class TrustEngine:
+    """
+    High-level wrapper around :class:`AdaptiveTrustEngine` that accepts the
+    full set of DhanRakshak signals and exposes the API expected by the
+    verification pipeline.
+
+    Inputs
+    ------
+    trufor_score    : TruFor forgery probability [0, 1].
+    ela_score       : ELA anomaly score [0, 1].
+    ocr_conflicts   : List of OCR conflict dicts (keys: type, severity, message).
+    behavioral_score: Behavioral anomaly score [0, 1].
+    metadata_flags  : List of metadata red-flag strings.
+    rule_base_score : Legacy rule engine score [0, 100] (normalised internally).
+
+    Output of compute_risk()
+    ------------------------
+    Dict with keys: final_score, risk_level, recommendation, component_scores,
+    anomaly_flags, anomaly_type.
+    """
+
+    # Relative weights within the doc-forensic component
+    # Must sum to 1.0.
+    _W_TRUFOR  = 0.30   # TruFor/ELA integrity (inverted to forgery prob)
+    _W_ELA     = 0.20   # ELA anomaly
+    _W_INCOME  = 0.20   # Income discrepancy fraud score
+    _W_OCR     = 0.20   # OCR cross-document conflicts
+    _W_META    = 0.05   # Metadata flags
+    _W_RULE    = 0.05   # Legacy rule-engine score
+
+    def __init__(
+        self,
+        weight_doc_forensic:  Optional[float] = None,
+        weight_behavioral:    Optional[float] = None,
+        weight_graph_anomaly: Optional[float] = None,
+        threshold_high:       Optional[float] = None,
+        threshold_medium:     Optional[float] = None,
+    ) -> None:
+        self._engine = AdaptiveTrustEngine(
+            weight_doc_forensic=weight_doc_forensic,
+            weight_behavioral=weight_behavioral,
+            weight_graph_anomaly=weight_graph_anomaly,
+            threshold_high=threshold_high,
+            threshold_medium=threshold_medium,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ocr_score(conflicts: list) -> float:
+        """Convert OCR conflict list to a [0, 1] severity score (accumulative, capped at 1)."""
+        if not conflicts:
+            return 0.0
+        total = 0.0
+        for c in conflicts:
+            sev = (c.get("severity") or "LOW").upper()
+            total += _OCR_SEVERITY_WEIGHT.get(sev, 0.3)
+        return min(total, 1.0)
+
+    @staticmethod
+    def _metadata_score(flags: list) -> float:
+        """Convert metadata flag list to a [0, 1] score."""
+        if not flags:
+            return 0.0
+        return min(len(flags) * 0.25, 1.0)
+
+    def _doc_forensic_score(
+        self,
+        trufor_score: float,
+        ela_score: float,
+        ocr_conflicts: list,
+        metadata_flags: list,
+        rule_base_score: float,
+        income_fraud_score: float = 0.0,
+        benford_score: float = 0.0,
+    ) -> float:
+        """
+        Aggregate document-level signals into one [0, 1] forgery risk score.
+
+        Note on trufor_score / ela_score semantics
+        ------------------------------------------
+        TruForDetector.analyze() returns ``integrity_score`` where
+        **higher = more authentic**.  The public compute_risk() signature
+        accepts these as-is and the inversion is applied HERE so that the
+        rest of the pipeline consistently works with forgery probability
+        (0 = clean, 1 = forged).
+        """
+        # Convert integrity scores -> forgery probability
+        trufor_forgery = 1.0 - max(0.0, min(float(trufor_score), 1.0))
+        ela_forgery    = 1.0 - max(0.0, min(float(ela_score),    1.0))
+
+        ocr     = self._ocr_score(ocr_conflicts)
+        meta    = self._metadata_score(metadata_flags)
+        rule    = max(0.0, min(float(rule_base_score) / 100.0, 1.0))
+        income  = max(0.0, min(float(income_fraud_score), 1.0))
+        benford = max(0.0, min(float(benford_score), 1.0))
+
+        raw = (
+            self._W_TRUFOR * trufor_forgery
+            + self._W_ELA    * ela_forgery
+            + self._W_INCOME * income
+            + self._W_OCR    * ocr
+            + self._W_META   * meta
+            + self._W_RULE   * rule
+        )
+
+        # Benford blended at 5% on top — only when data is available
+        if benford > 0.0:
+            raw = raw * 0.95 + benford * 0.05
+
+        return round(min(raw, 1.0), 6)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def compute_risk(
+        self,
+        trufor_score:        float,
+        ela_score:           float,
+        ocr_conflicts:       list,
+        behavioral_score:    float,
+        metadata_flags:      list,
+        rule_base_score:     float,
+        graph_anomaly_score: float = 0.0,
+        income_fraud_score:  float = 0.0,
+        benford_score:       float = 0.0,
+        applicant_name:      str   = "",
+        pan_number:          str   = "",
+        doc_type:            str   = "Document",
+        audit_id:            str   = "",
+    ) -> dict:
+        """
+        Compute a unified fraud risk assessment.
+
+        Parameters
+        ----------
+        trufor_score         : TruFor integrity score [0, 1]  (higher = cleaner).
+        ela_score            : ELA anomaly score [0, 1].
+        ocr_conflicts        : List of OCR conflict dicts.
+        behavioral_score     : Behavioral anomaly score [0, 1].
+        metadata_flags       : List of metadata red-flag strings.
+        rule_base_score      : Legacy rule score [0, 100].
+        graph_anomaly_score  : Graph/entity anomaly score [0, 1] (optional).
+        income_fraud_score   : Income discrepancy score [0, 1] (optional).
+        benford_score        : Benford's Law chi-square normalised score [0, 1] (optional).
+        applicant_name       : Applicant display name (for report context).
+        pan_number           : PAN number (for report context).
+        doc_type             : Document type label (for report context).
+        audit_id             : Audit reference ID (for report context).
+
+        Returns
+        -------
+        dict with keys:
+            final_score, final_score_pct, risk_level, recommendation,
+            component_scores, anomaly_flags, anomaly_type,
+            applicant_name, pan_number, doc_type, audit_id,
+            top_risk_factors, conflicts
+        """
+        # Income fraud gets its own dedicated component weight
+        effective_rule = max(0.0, min(float(rule_base_score), 100.0))
+
+        doc_score = self._doc_forensic_score(
+            trufor_score, ela_score, ocr_conflicts, metadata_flags,
+            effective_rule, income_fraud_score, benford_score,
+        )
+
+        base: TrustResult = self._engine.evaluate(
+            doc_forensic_score=doc_score,
+            session_behavioral_score=max(0.0, min(float(behavioral_score), 1.0)),
+            graph_anomaly_score=max(0.0, min(float(graph_anomaly_score), 1.0)),
+        )
+
+        risk_level: RiskLevel = base["risk_level"]
+        final_score: float = base["final_score"]
+
+        # Build anomaly flag list for downstream use
+        anomaly_flags: list = list(metadata_flags)
+        for c in ocr_conflicts:
+            msg = c.get("message") or c.get("type") or "ocr_conflict"
+            anomaly_flags.append(msg)
+
+        anomaly_type: str
+        if risk_level == "HIGH":
+            anomaly_type = "document_fraud"
+        elif risk_level == "MEDIUM":
+            anomaly_type = "suspicious_activity"
+        else:
+            anomaly_type = "none"
+
+        # Build top risk factors list for reporter
+        top_risk_factors: list = []
+        if trufor_score < 0.85:
+            top_risk_factors.append({
+                "factor":   "Document integrity",
+                "detail":   f"TruFor integrity score {trufor_score:.3f}",
+                "severity": "HIGH" if trufor_score < 0.7 else "MEDIUM",
+                "score":    round(1.0 - trufor_score, 3),
+            })
+        if income_fraud_score > 0.2:
+            top_risk_factors.append({
+                "factor":   "Income discrepancy",
+                "detail":   f"Income fraud score {income_fraud_score:.3f}",
+                "severity": "HIGH" if income_fraud_score > 0.4 else "MEDIUM",
+                "score":    round(income_fraud_score, 3),
+            })
+        for c in ocr_conflicts[:3]:
+            top_risk_factors.append({
+                "factor":   c.get("type", "conflict"),
+                "detail":   c.get("message", ""),
+                "severity": c.get("severity", "MEDIUM"),
+                "score":    0.8 if c.get("severity") == "HIGH" else 0.5,
+            })
+
+        return {
+            "final_score":       final_score,
+            "final_score_pct":   round(final_score * 100, 2),
+            "risk_level":        risk_level,
+            "recommendation":    _RECOMMENDATION[risk_level],
+            "applicant_name":    applicant_name,
+            "pan_number":        pan_number,
+            "doc_type":          doc_type,
+            "audit_id":          audit_id or f"AUD-{abs(hash(applicant_name + pan_number)) % 100000:05d}",
+            "component_scores": {
+                **base["component_scores"],
+                "doc_forensic_breakdown": {
+                    "trufor":         round(trufor_score, 6),
+                    "ela":            round(ela_score, 6),
+                    "ocr":            round(self._ocr_score(ocr_conflicts), 6),
+                    "metadata":       round(self._metadata_score(metadata_flags), 6),
+                    "rule":           round(effective_rule / 100.0, 6),
+                    "income_fraud":   round(income_fraud_score, 6),
+                    "benford":        round(benford_score, 6),
+                },
+            },
+            "anomaly_flags":     anomaly_flags,
+            "anomaly_type":      anomaly_type,
+            "top_risk_factors":  top_risk_factors,
+            "conflicts":         ocr_conflicts,
+        }
+
+
+    def explain_text(self, risk_result: dict) -> str:
+        """
+        Return a human-readable explanation string for a compute_risk() result.
+
+        Parameters
+        ----------
+        risk_result : dict returned by :meth:`compute_risk`.
+
+        Returns
+        -------
+        str — multi-line explanation suitable for logging or UI display.
+        """
+        lines = [
+            f"Risk Assessment Summary",
+            f"======================",
+            f"Risk Level   : {risk_result.get('risk_level', 'N/A')}",
+            f"Final Score  : {risk_result.get('final_score', 0.0):.4f}",
+            f"Recommendation: {risk_result.get('recommendation', 'N/A')}",
+            f"Anomaly Type : {risk_result.get('anomaly_type', 'none')}",
+            "",
+        ]
+
+        comp = risk_result.get("component_scores", {})
+        lines.append("Component Scores:")
+        lines.append(f"  Document Forensic : {comp.get('doc_forensic', 0.0):.4f}")
+        lines.append(f"  Behavioral        : {comp.get('session_behavioral', 0.0):.4f}")
+        lines.append(f"  Graph Anomaly     : {comp.get('graph_anomaly', 0.0):.4f}")
+
+        breakdown = comp.get("doc_forensic_breakdown", {})
+        if breakdown:
+            lines.append("")
+            lines.append("Document Forensic Breakdown:")
+            lines.append(f"  TruFor  : {breakdown.get('trufor', 0.0):.4f}")
+            lines.append(f"  ELA     : {breakdown.get('ela', 0.0):.4f}")
+            lines.append(f"  OCR     : {breakdown.get('ocr', 0.0):.4f}")
+            lines.append(f"  Metadata: {breakdown.get('metadata', 0.0):.4f}")
+            lines.append(f"  Rules   : {breakdown.get('rule', 0.0):.4f}")
+
+        flags = risk_result.get("anomaly_flags", [])
+        if flags:
+            lines.append("")
+            lines.append(f"Anomaly Flags ({len(flags)}):")
+            for f_ in flags:
+                lines.append(f"  • {f_}")
+
+        return "\n".join(lines)

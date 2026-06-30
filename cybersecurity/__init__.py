@@ -1,1 +1,0 @@
-# Cybersecurity utilities package

@@ -1,24 +1,35 @@
+"""Security utilities: password hashing and JWT token creation/verification."""
 from datetime import datetime, timedelta, timezone
-from typing import Any, Union
-import jwt
+from typing import Any
+
 import bcrypt
+import jwt
+
 from app.core.config import settings
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+
+def verify_password(plain: str, hashed: str) -> bool:
+    """Return True if *plain* matches the bcrypt *hashed* password."""
     try:
-        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except ValueError:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except (ValueError, AttributeError):
         return False
 
-def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-def create_access_token(subject: Union[str, Any], expires_delta: timedelta | None = None) -> str:
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode = {"exp": expire, "sub": str(subject)}
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    return encoded_jwt
+def get_password_hash(password: str) -> str:
+    """Return a bcrypt hash of *password*."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def create_access_token(subject: Any, expires_delta: timedelta | None = None) -> str:
+    """Create a signed JWT token for *subject* (typically user id or employee_id)."""
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    payload = {"sub": str(subject), "exp": expire}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    """Decode and validate *token*. Raises jwt.PyJWTError on failure."""
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

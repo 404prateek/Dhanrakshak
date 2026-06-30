@@ -1,1 +1,0 @@
-# spaCy NER for name, DOB, property ID

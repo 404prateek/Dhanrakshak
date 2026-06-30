@@ -1,6 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { MainLayout } from '../components/layout/MainLayout';
-import { Login } from '../pages/Login';
 import { Dashboard } from '../pages/Dashboard';
 import { CaseManagement } from '../pages/CaseManagement';
 import { Investigation } from '../pages/Investigation';
@@ -8,18 +7,18 @@ import { FraudReport } from '../pages/FraudReport';
 import { AuditLogs } from '../pages/AuditLogs';
 import { UserManagement } from '../pages/UserManagement';
 import { Settings } from '../pages/Settings';
+import { Ingest } from '../pages/Ingest';
 import { ProtectedRoute } from './ProtectedRoute';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      
-      {/* Protected Routes */}
+      {/* Protected Routes (Authentication bypassed) */}
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="ingest" element={<Ingest />} />
           <Route path="cases" element={<CaseManagement />} />
           
           {/* Contextual Routes - ID required */}
@@ -39,7 +38,8 @@ export function AppRoutes() {
         </Route>
       </Route>
       
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      {/* Fallback to dashboard instead of login */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

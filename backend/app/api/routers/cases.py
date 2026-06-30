@@ -1,11 +1,12 @@
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from app.api.deps import get_db, ActiveUser, require_role
 from app.models.case import Case, Document
+from app.models.user import User
 from app.schemas.case import CaseResponse, CaseCreate, DocumentResponse, CaseUpdateStatus
 from app.storage.file_manager import FileManager
-from datetime import datetime
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ def update_case_status(
         raise HTTPException(status_code=404, detail="Case not found")
         
     case.status = status_update.status
-    case.updated_at = datetime.utcnow()
+    case.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(case)
     return case

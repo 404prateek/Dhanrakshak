@@ -9,7 +9,8 @@ import {
   Users, 
   Settings,
   LogOut,
-  Menu
+  Menu,
+  UploadCloud
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../utils/helpers';
@@ -31,6 +32,7 @@ export function EnterpriseSidebar() {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', basePath: '/dashboard', icon: LayoutDashboard },
+    { name: 'Data Ingest', path: '/ingest', basePath: '/ingest', icon: UploadCloud },
     { name: 'Cases', path: '/cases', basePath: '/cases', icon: Briefcase },
     { name: 'Investigation', path: currentCaseId ? `/investigation/${currentCaseId}` : '#', basePath: '/investigation', icon: Search, requiresCase: true },
     { name: 'Fraud Reports', path: currentCaseId ? `/fraud-reports/${currentCaseId}` : '#', basePath: '/fraud-reports', icon: FileText, requiresCase: true },
@@ -56,16 +58,12 @@ export function EnterpriseSidebar() {
       <div className="flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800">
         {!collapsed && (
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
-              <ShieldAlert className="w-5 h-5 text-white" />
-            </div>
+            <img src="/logo.png" alt="DhanRakshak" className="w-8 h-8 object-contain" />
             <span className="text-xl font-bold text-white tracking-tight">DhanRakshak</span>
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center mx-auto">
-            <ShieldAlert className="w-5 h-5 text-white" />
-          </div>
+          <img src="/logo.png" alt="DhanRakshak" className="w-8 h-8 object-contain mx-auto" />
         )}
         <button 
           onClick={() => setCollapsed(!collapsed)}

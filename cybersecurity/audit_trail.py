@@ -1,1 +1,0 @@
-# Immutable audit log writer

@@ -2,6 +2,7 @@ from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, ActiveUser, require_role
+from app.models.user import User
 from app.models.fraud_report import FraudReport
 from app.schemas.fraud_report import FraudReportResponse, FraudReportCreate
 

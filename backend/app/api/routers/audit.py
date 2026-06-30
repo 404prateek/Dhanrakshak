@@ -2,6 +2,7 @@ from typing import Any, List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, ActiveUser, require_role
+from app.models.user import User
 from app.models.audit import AuditLog
 from app.schemas.audit import AuditLogResponse
 

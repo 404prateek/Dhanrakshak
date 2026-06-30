@@ -1,14 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { 
   FileText, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Download, Printer, ShieldAlert,
-  CheckCircle2, XCircle, AlertTriangle, UploadCloud, Clock, User
+  CheckCircle2, XCircle, AlertTriangle, UploadCloud, Clock, User, Brain, GitCompare, Play
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { api } from '../services/api';
+import { api, runMLAnalysis as runML, runCrossDocAnalysis } from '../services/api';
 import { cn, formatDate } from '../utils/helpers';
+import { MLResultCard } from '../components/MLResultCard';
 
 export function Investigation() {
   const { id } = useParams();
@@ -19,7 +20,89 @@ export function Investigation() {
   const [activeDoc, setActiveDoc] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [newNote, setNewNote] = useState('');
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Cross-document pair analysis state
+  const [pairPrimary, setPairPrimary] = useState(null);
+  const [pairSecondary, setPairSecondary] = useState(null);
+  const [pairResult, setPairResult] = useState(null);
+  const [isPairAnalyzing, setIsPairAnalyzing] = useState(false);
+
+  // Tabs for the main view
+  const [activeTab, setActiveTab] = useState('document'); // 'document', 'analysis', 'cross-doc'
+
   const fileInputRef = useRef(null);
+
+  // ML analysis — fires when user explicitly clicks "Run AI Analysis"
+  const runMLAnalysis = useCallback(async (doc) => {
+    if (!doc?.file_path) {
+      toast.warning('No file selected for analysis.');
+      return;
+    }
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    setActiveTab('analysis');
+    try {
+      const data = await runML(caseId, [doc.file_path], {});
+      setAnalysisResult(data);
+      
+      // Auto-save the AI findings to the DB so "View Report" works
+      if (data) {
+        let findings = data.llm_report;
+        if (!findings && data.top_risk_factors?.length > 0) {
+           findings = data.top_risk_factors.map(f => f.factor + ': ' + f.detail).join('\n');
+        }
+        await api.createReport({
+          case_id: caseId,
+          risk_score: data.final_score_pct ?? data.risk_score ?? 0,
+          fraud_category: data.risk_level === 'LOW' ? 'Document AI Verified' : 'AI Analysis Findings',
+          findings: findings || 'AI Analysis completed. No major fraud indicators found.',
+          recommendation: data.recommendation || 'APPROVE'
+        });
+        queryClient.invalidateQueries(['reports', caseId]);
+      }
+    } catch (err) {
+      toast.error('ML analysis failed', { description: err.message });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [caseId, queryClient]);
+
+  // Cross-document pair analysis
+  const runPairAnalysis = useCallback(async () => {
+    if (!pairPrimary || !pairSecondary) {
+      toast.warning('Please select two documents for pair analysis.');
+      return;
+    }
+    if (pairPrimary.id === pairSecondary.id) {
+      toast.warning('Please select two different documents.');
+      return;
+    }
+    setIsPairAnalyzing(true);
+    setPairResult(null);
+    try {
+      const data = await runCrossDocAnalysis(caseId, pairPrimary.file_path, pairSecondary.file_path);
+      setPairResult(data);
+      toast.success('Cross-document analysis complete');
+      
+      // Auto-save cross-doc findings
+      if (data) {
+        await api.createReport({
+          case_id: caseId,
+          risk_score: data.final_score_pct ?? data.risk_score ?? 0,
+          fraud_category: 'Cross-Document Analysis',
+          findings: data.llm_report || 'Cross-document analysis completed.',
+          recommendation: data.recommendation || 'MANUAL_REVIEW'
+        });
+        queryClient.invalidateQueries(['reports', caseId]);
+      }
+    } catch (err) {
+      toast.error('Pair analysis failed', { description: err.message });
+    } finally {
+      setIsPairAnalyzing(false);
+    }
+  }, [caseId, pairPrimary, pairSecondary, queryClient]);
 
   // Queries
   const { data: cases = [], isLoading: loadingCases } = useQuery({
@@ -85,7 +168,7 @@ export function Investigation() {
         return;
       }
 
-      // Auto-generate report
+      // Auto-generate report on status change
       let fraud_category, findings, recommendation, risk_score;
       if (status === 'APPROVED') {
         fraud_category = "Clear";
@@ -118,12 +201,18 @@ export function Investigation() {
     setActiveDoc(documents[0]);
   }
 
+  const handleDocClick = (doc) => {
+    setActiveDoc(doc);
+    // Clear previous single-doc analysis when switching docs — do NOT auto-run analysis
+    setAnalysisResult(null);
+  };
+
   const getDocumentUrl = (filePath) => {
     if (!filePath) return '';
     if (filePath.startsWith('http')) return filePath;
     const cleanPath = filePath.replace('./storage/', '').replace(/\\/g, '/');
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
-    return baseUrl.replace('/api/v1', '') + '/storage/' + cleanPath;
+    // Use relative path — Vite proxy forwards /storage/* to the backend
+    return '/storage/' + cleanPath;
   };
 
   const StatusIcon = ({ status }) => {
@@ -151,7 +240,8 @@ export function Investigation() {
 
   const handleSaveNote = () => {
     if (!newNote.trim()) return;
-    createNoteMutation.mutate({ case_id: caseId, user_id: 1, note: newNote });
+    // user_id is intentionally omitted — the backend uses current_user.id from the JWT token
+    createNoteMutation.mutate({ case_id: caseId, note: newNote });
   };
 
   const handleApprove = () => {
@@ -190,7 +280,7 @@ export function Investigation() {
     timelineEvents.push({ type: 'REPORT_GEN', title: 'Fraud Report Generated', date: report.generated_at || report.created_at || new Date().toISOString(), color: 'bg-purple-500' });
   });
 
-  timelineEvents.sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest first
+  timelineEvents.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const handleFileSelect = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -202,7 +292,7 @@ export function Investigation() {
     return (
       <div className="flex h-[calc(100vh-6rem)] items-center justify-center -m-6 bg-slate-50">
         <div className="text-center max-w-md p-8 bg-white rounded-xl border border-slate-200 shadow-sm">
-          <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <ShieldAlert className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900 mb-2">No Case Selected</h2>
           <p className="text-slate-500 mb-6">Please select a case from the Cases menu to view the investigation workspace.</p>
           <Button variant="primary" onClick={() => navigate('/cases')}>
@@ -232,8 +322,9 @@ export function Investigation() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 bg-slate-100">
+      {/* Top Header Bar */}
       <div className="bg-white border-b border-slate-200 shadow-sm z-10">
-        <div className="px-6 py-3 flex justify-between items-center border-b border-slate-100">
+        <div className="px-6 py-2 flex justify-between items-center border-b border-slate-100">
           <div className="flex items-center space-x-4">
             <div>
               <h1 className="text-lg font-bold text-slate-900">Investigation Workspace</h1>
@@ -247,8 +338,8 @@ export function Investigation() {
           </div>
         </div>
         
-        {/* SECTION A — CASE SUMMARY CARD */}
-        <div className="px-6 py-4 grid grid-cols-6 gap-6 text-sm">
+        {/* Case Summary Card */}
+        <div className="px-6 py-2 grid grid-cols-6 gap-4 text-xs">
           <div>
             <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Case Reference</p>
             <p className="font-bold text-slate-900">CASE-{currentCase.id}</p>
@@ -279,11 +370,15 @@ export function Investigation() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: Document List & Upload */}
-        <div className="w-72 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+        {activeTab === 'document' && (
+          <div className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+
             <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Documents</h2>
+            <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full font-medium">{documents.length}</span>
           </div>
           
+          {/* Upload Zone */}
           <div 
             className={cn(
               "m-3 border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer",
@@ -305,6 +400,7 @@ export function Investigation() {
             )}
           </div>
 
+          {/* Document List */}
           <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
             {documents.length === 0 ? (
               <div className="text-xs text-slate-400 text-center py-4">No documents uploaded yet.</div>
@@ -312,82 +408,243 @@ export function Investigation() {
               documents.map(doc => (
                 <div 
                   key={doc.id}
-                  onClick={() => setActiveDoc(doc)}
+                  onClick={() => handleDocClick(doc)}
                   className={cn(
-                    "p-3 rounded-md cursor-pointer border transition-colors flex items-start",
+                    "p-3 rounded-md cursor-pointer border transition-colors",
                     activeDoc?.id === doc.id 
                       ? "bg-blue-50 border-blue-200" 
-                      : "bg-white border-transparent hover:bg-slate-50"
+                      : "bg-white border-transparent hover:bg-slate-50 hover:border-slate-200"
                   )}
                 >
                   <div className="flex items-start">
-                    <FileText className={cn("w-8 h-8 mr-3 flex-shrink-0 transition-colors", activeDoc?.id === doc.id ? "text-blue-600" : "text-slate-400 group-hover:text-blue-500")} />
+                    <FileText className={cn("w-8 h-8 mr-3 flex-shrink-0 transition-colors", activeDoc?.id === doc.id ? "text-blue-600" : "text-slate-400")} />
                     <div className="overflow-hidden flex-1">
-                      <p className={cn("text-sm font-semibold truncate transition-colors", activeDoc?.id === doc.id ? "text-blue-900" : "text-slate-700 group-hover:text-blue-700")} title={doc.file_name}>
+                      <p className={cn("text-sm font-semibold truncate transition-colors", activeDoc?.id === doc.id ? "text-blue-900" : "text-slate-700")} title={doc.file_name}>
                         {doc.file_name}
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5 flex justify-between items-center">
                         <span>{doc.file_type}</span>
                         <span className="text-[10px]">{formatDate(doc.upload_date)}</span>
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-1 flex items-center"><User className="w-3 h-3 mr-1"/> Uploaded by ID: {doc.user_id || 1}</p>
+                      {/* FIX: was doc.user_id, now using doc.uploaded_by (correct field from backend) */}
+                      <p className="text-[10px] text-slate-400 mt-1 flex items-center"><User className="w-3 h-3 mr-1"/> Officer ID: {doc.uploaded_by ?? '—'}</p>
                     </div>
                   </div>
-                  <div className="flex space-x-2 mt-3 pt-2 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="flex-1 flex items-center justify-center text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 py-1.5 rounded" onClick={(e) => { e.stopPropagation(); setActiveDoc(doc); }}>
-                      <ZoomIn className="w-3.5 h-3.5 mr-1" /> View
-                    </button>
-                    <button className="flex-1 flex items-center justify-center text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 py-1.5 rounded" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex space-x-2 mt-2 pt-2 border-t border-slate-100">
+                    <a 
+                      href={getDocumentUrl(doc.file_path)} 
+                      download={doc.file_name}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-1 flex items-center justify-center text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 py-1.5 rounded"
+                    >
                       <Download className="w-3.5 h-3.5 mr-1" /> Download
-                    </button>
+                    </a>
                   </div>
                 </div>
               ))
             )}
           </div>
         </div>
+        )}
 
-        {/* Center Column: Document Viewer Placeholder */}
-        <div className="flex-1 flex flex-col bg-slate-100 relative">
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow border border-slate-200 p-1.5 flex items-center space-x-1 z-10">
-            <button className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut className="w-4 h-4" /></button>
-            <span className="text-xs font-medium px-2 text-slate-700">100%</span>
-            <button className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn className="w-4 h-4" /></button>
-            <div className="w-px h-4 bg-slate-300 mx-1"></div>
-            <button className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><Download className="w-4 h-4" /></button>
+        {/* Center Column: Document Viewer + ML Results */}
+        <div className="flex-1 flex flex-col bg-slate-100 relative overflow-hidden">
+          
+          {/* Tab Bar & Toolbar */}
+          <div className="sticky top-0 z-10 flex flex-col bg-white border-b border-slate-200">
+            <div className="flex justify-between items-center px-4 py-2 bg-slate-50 border-b border-slate-200">
+              <div className="flex space-x-1">
+                <button
+                  onClick={() => setActiveTab('document')}
+                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors", activeTab === 'document' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                >
+                  Document Viewer
+                </button>
+                <button
+                  onClick={() => setActiveTab('analysis')}
+                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors flex items-center space-x-2", activeTab === 'analysis' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                >
+                  <span>AI Analysis</span>
+                  {analysisResult && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
+                </button>
+                <button
+                  onClick={() => setActiveTab('cross-doc')}
+                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors", activeTab === 'cross-doc' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                >
+                  Cross-Document Analysis
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
+                  <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomOut className="w-4 h-4" /></button>
+                  <span className="text-xs font-medium px-2 text-slate-700">100%</span>
+                  <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomIn className="w-4 h-4" /></button>
+                </div>
+                {/* Explicit "Run AI Analysis" button */}
+                <button
+                  onClick={() => runMLAnalysis(activeDoc)}
+                  disabled={isAnalyzing || !activeDoc}
+                  className={cn(
+                    "flex items-center space-x-2 text-sm font-semibold px-4 py-1.5 rounded-lg transition-all",
+                    isAnalyzing 
+                      ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                      : activeDoc 
+                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                  )}
+                >
+                  {isAnalyzing ? (
+                    <><span className="animate-spin h-4 w-4 border-b-2 border-slate-500 rounded-full inline-block"></span><span>Analyzing...</span></>
+                  ) : (
+                    <><Brain className="w-4 h-4" /><span>Run AI Analysis</span></>
+                  )}
+                </button>
+                {activeDoc && (
+                  <a href={getDocumentUrl(activeDoc.file_path)} download={activeDoc.file_name} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 bg-white border border-slate-200 shadow-sm">
+                    <Download className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
           
-          <div className="flex-1 overflow-auto p-4 md:p-8 flex items-center justify-center">
-            {activeDoc ? (
-              <div className="bg-white shadow-lg border border-slate-200 w-full h-full flex flex-col relative overflow-hidden rounded-md group">
-                {activeDoc.file_type.toLowerCase().includes('pdf') || activeDoc.file_name.toLowerCase().endsWith('.pdf') ? (
-                  <iframe src={getDocumentUrl(activeDoc.file_path)} className="w-full h-full border-none" title="PDF Viewer" />
-                ) : activeDoc.file_type.toLowerCase().includes('image') || activeDoc.file_name.toLowerCase().match(/\.(jpg|jpeg|png)$/i) ? (
-                  <div className="w-full h-full flex items-center justify-center bg-slate-100 overflow-auto">
-                    <img src={getDocumentUrl(activeDoc.file_path)} alt={activeDoc.file_name} className="max-w-full max-h-full object-contain" />
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-100">
+            {/* Tab 1: Document Viewer */}
+            {activeTab === 'document' && (
+              <div className="h-full flex flex-col">
+                {activeDoc ? (
+                  <div className="bg-white shadow-sm border border-slate-200 w-full flex-1 flex flex-col relative overflow-hidden rounded-md h-full">
+                    {activeDoc.file_type.toLowerCase().includes('pdf') || activeDoc.file_name.toLowerCase().endsWith('.pdf') ? (
+                      <iframe src={getDocumentUrl(activeDoc.file_path)} className="w-full h-full border-none min-h-full" title="PDF Viewer" />
+                    ) : activeDoc.file_type.toLowerCase().includes('image') || activeDoc.file_name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                      <div className="w-full h-full flex items-center justify-center bg-slate-100 overflow-auto min-h-full">
+                        <img src={getDocumentUrl(activeDoc.file_path)} alt={activeDoc.file_name} className="max-w-full max-h-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="text-center text-slate-400 m-auto py-16">
+                        <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <p>Preview not available for this file type.</p>
+                        <a href={getDocumentUrl(activeDoc.file_path)} download className="text-blue-600 hover:underline mt-2 inline-block">Download instead</a>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-center text-slate-400 m-auto">
-                    <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <p>Preview not available for this file type.</p>
-                    <a href={getDocumentUrl(activeDoc.file_path)} download className="text-blue-600 hover:underline mt-2 inline-block">Download instead</a>
+                  <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-white border border-dashed border-slate-300 rounded-xl">Select a document to view</div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 2: AI Analysis Report — full width, scrollable */}
+            {activeTab === 'analysis' && (
+              <div className="w-full">
+                {isAnalyzing && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-12 flex flex-col items-center justify-center space-y-4 shadow-sm">
+                    <Brain className="w-10 h-10 animate-pulse text-blue-600" />
+                    <span className="text-lg font-semibold text-gray-800">Running deep AI fraud analysis...</span>
+                    <p className="text-sm text-gray-500">Forensic · OCR · Behavioral · Trust Engine · AI Report</p>
+                    <span className="flex space-x-2">
+                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
+                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></span>
+                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></span>
+                    </span>
+                  </div>
+                )}
+                {!isAnalyzing && analysisResult && (
+                  <MLResultCard result={analysisResult} />
+                )}
+                {!isAnalyzing && !analysisResult && activeDoc && (
+                  <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-xl border border-dashed border-slate-300 shadow-sm">
+                    <div className="text-4xl mb-3">🔍</div>
+                    <p className="text-lg font-medium text-slate-700">No analysis yet</p>
+                    <p className="text-sm mt-1 mb-4">Click <span className="text-blue-600 font-bold">Run AI Analysis</span> to analyze the selected document</p>
+                    <Button variant="primary" onClick={() => runMLAnalysis(activeDoc)}>
+                      Run AI Analysis Now
+                    </Button>
+                  </div>
+                )}
+                {!isAnalyzing && !activeDoc && (
+                  <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-xl border border-dashed border-slate-300 shadow-sm">
+                    <div className="text-4xl mb-3">📄</div>
+                    <p className="text-lg font-medium text-slate-700">No document selected</p>
+                    <p className="text-sm mt-1">Select a document from the left panel first</p>
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="text-slate-400 text-sm">Select a document to view</div>
+            )}
+
+            {/* Tab 3: Cross-Document Analysis */}
+            {activeTab === 'cross-doc' && (
+              <div className="max-w-4xl mx-auto w-full">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-8">
+                  <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
+                    <GitCompare className="w-5 h-5 mr-3 text-blue-600" />
+                    Cross-Document Pair Analysis
+                  </h2>
+                  <div className="flex items-center space-x-6">
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Primary Document</p>
+                      <select
+                        className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
+                        value={pairPrimary?.id ?? ''}
+                        onChange={e => setPairPrimary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
+                      >
+                        <option value="">— Select document —</option>
+                        {documents.map(d => (
+                          <option key={d.id} value={d.id}>{d.file_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <GitCompare className="w-8 h-8 text-blue-400 flex-shrink-0 mt-6" />
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Secondary Document</p>
+                      <select
+                        className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
+                        value={pairSecondary?.id ?? ''}
+                        onChange={e => setPairSecondary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
+                      >
+                        <option value="">— Select document —</option>
+                        {documents.map(d => (
+                          <option key={d.id} value={d.id}>{d.file_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-8 flex justify-center border-t border-gray-100 pt-8">
+                    <button
+                      onClick={runPairAnalysis}
+                      disabled={isPairAnalyzing || !pairPrimary || !pairSecondary}
+                      className="flex items-center space-x-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold px-8 py-3 rounded-lg transition-colors shadow-sm"
+                    >
+                      {isPairAnalyzing ? (
+                        <><span className="animate-spin h-5 w-5 border-b-2 border-white rounded-full inline-block"></span><span>Analyzing Pair...</span></>
+                      ) : (
+                        <><Play className="w-5 h-5" /><span>Run Pair Analysis</span></>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {pairResult && (
+                  <div className="mt-8">
+                    <MLResultCard result={pairResult} />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
 
         {/* Right Column: Investigation Notes & Timeline */}
-        <div className="w-80 bg-white border-l border-slate-200 flex flex-col flex-shrink-0">
+        {activeTab === 'document' && (
+        <div className="w-64 bg-white border-l border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300">
           <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
             <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Investigation Log</h2>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-8 bg-slate-50/50">
             
-            {/* SECTION C — INVESTIGATION NOTES */}
+            {/* Investigation Notes */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center">
@@ -413,6 +670,9 @@ export function Investigation() {
               </div>
               
               <div className="space-y-3">
+                {notes.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-2">No notes yet.</p>
+                )}
                 {notes.map(note => (
                   <div key={note.id} className="p-3 bg-white border border-slate-200 rounded-lg shadow-sm hover:border-slate-300 transition-colors">
                     <div className="flex justify-between items-start mb-2">
@@ -430,29 +690,34 @@ export function Investigation() {
               </div>
             </div>
 
-            {/* SECTION D — INVESTIGATION TIMELINE */}
+            {/* Investigation Timeline */}
             <div>
               <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center">
                 <Clock className="w-4 h-4 mr-1 text-slate-400" />
                 Timeline
               </h3>
-              <div className="relative border-l-2 border-slate-200 ml-3 space-y-6 pb-2">
-                {timelineEvents.map((evt, idx) => (
-                  <div key={idx} className="relative pl-6">
-                    <div className={cn("absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm", evt.color)}></div>
-                    <p className={cn("text-sm font-bold", 
-                      evt.type === 'STATUS_CHANGED' && evt.title === 'Fraud Confirmed' ? 'text-red-700' : 
-                      evt.type === 'STATUS_CHANGED' && evt.title === 'Case Approved' ? 'text-emerald-700' : 
-                      'text-slate-800'
-                    )}>{evt.title}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{formatDate(evt.date)}</p>
-                  </div>
-                ))}
-              </div>
+              {timelineEvents.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">No events yet.</p>
+              ) : (
+                <div className="relative border-l-2 border-slate-200 ml-3 space-y-6 pb-2">
+                  {timelineEvents.map((evt, idx) => (
+                    <div key={idx} className="relative pl-6">
+                      <div className={cn("absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm", evt.color)}></div>
+                      <p className={cn("text-sm font-bold", 
+                        evt.type === 'STATUS_CHANGED' && evt.title === 'Fraud Confirmed' ? 'text-red-700' : 
+                        evt.type === 'STATUS_CHANGED' && evt.title === 'Case Approved' ? 'text-emerald-700' : 
+                        'text-slate-800'
+                      )}>{evt.title}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{formatDate(evt.date)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
           </div>
         </div>
+        )}
       </div>
     </div>
   );

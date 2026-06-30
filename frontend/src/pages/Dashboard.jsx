@@ -31,7 +31,7 @@ const fraudCategoryData = [
 const COLORS = ['#1d4ed8', '#3b82f6', '#93c5fd', '#1e3a8a'];
 
 export function Dashboard() {
-  const { data: cases = [], isLoading, isError } = useQuery({
+  const { data: cases = [], isLoading, isError, error } = useQuery({
     queryKey: ['cases'],
     queryFn: api.getCases,
   });
@@ -54,9 +54,16 @@ export function Dashboard() {
 
   if (isError) {
     return (
-      <div className="bg-red-50 text-red-600 p-4 rounded-md flex items-center">
-        <ShieldAlert className="w-5 h-5 mr-2" />
-        Failed to load dashboard data. Please try again later.
+      <div className="bg-red-50 text-red-600 p-4 rounded-md flex flex-col justify-center">
+        <div className="flex items-center font-bold">
+          <ShieldAlert className="w-5 h-5 mr-2" />
+          Failed to load dashboard data.
+        </div>
+        <div className="mt-2 text-sm whitespace-pre-wrap font-mono bg-red-100 p-2 rounded">
+          {error?.message || "Unknown error"}
+          {'\n'}
+          {error?.response ? JSON.stringify(error.response.data, null, 2) : "No response data"}
+        </div>
       </div>
     );
   }

@@ -5,6 +5,16 @@ import { Button } from '../components/ui/Button';
 import { api } from '../services/api';
 import { formatDate } from '../utils/helpers';
 
+/* eslint-disable react/no-unknown-property */
+const PRINT_STYLES = `
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white !important; }
+    .print-container { box-shadow: none !important; border: none !important; }
+    #report-content { padding: 0 !important; }
+  }
+`;
+
 export function FraudReport() {
   const { id } = useParams();
   const caseId = parseInt(id, 10);
@@ -89,6 +99,19 @@ export function FraudReport() {
   });
   const uniqueReports = Array.from(uniqueReportsMap.values());
 
+  // FIX 4: Read the right score field — backend sends final_score_pct (0-100)
+  // currentCase.risk_score is always 0 in DB until manually updated
+  // The latest ML report has the real score in ml_result metadata
+  const mlResult = latestReport?.ml_result || {};
+  const displayScore = Math.round(
+    mlResult.final_score_pct
+    ?? mlResult.risk_score
+    ?? ((mlResult.final_score ?? 0) * 100)
+    ?? currentCase.risk_score
+    ?? 0
+  );
+  const riskLevel = mlResult.risk_level || (displayScore > 65 ? 'HIGH' : displayScore > 35 ? 'MEDIUM' : 'LOW');
+
   // Fix 4 & 5: Print and Download Handlers
   const handlePrint = () => {
     window.print();
@@ -110,10 +133,13 @@ export function FraudReport() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex justify-between items-end print:hidden">
+      {/* Inject print styles */}
+      <style dangerouslySetInnerHTML={{ __html: PRINT_STYLES }} />
+
+      <div className="flex justify-between items-end no-print">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Fraud Investigation Report</h1>
-          <p className="mt-1 text-sm text-slate-500">Official generated report for CASE-{currentCase.id}</p>
+          <h1 className="text-2xl font-bold text-gray-900">Fraud Investigation Report</h1>
+          <p className="mt-1 text-sm text-gray-500">Official generated report for CASE-{currentCase.id}</p>
         </div>
         <div className="flex space-x-2">
           <Button variant="secondary" icon={Download} onClick={handleDownloadPDF}>Download PDF</Button>
@@ -121,117 +147,151 @@ export function FraudReport() {
         </div>
       </div>
 
-      <div id="report-content" className="enterprise-card bg-white shadow-lg p-10 print:shadow-none print:border-none print:p-0">
+      <div id="report-content" className="print-container bg-white shadow-sm rounded-xl border border-gray-200 overflow-hidden print:shadow-none print:border-none">
         {/* SECTION A — REPORT HEADER */}
-        <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-start">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded bg-blue-600 flex items-center justify-center print:bg-slate-900">
-              <ShieldAlert className="w-8 h-8 text-white" />
+        <div className="bg-white border-b border-gray-200 px-8 py-6">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+                DR
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">DhanRakshak</h2>
+                <p className="text-xs text-gray-500 uppercase tracking-widest font-medium">
+                  Fraud Intelligence Unit · Canara Bank
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">DhanRakshak</h2>
-              <p className="text-sm font-medium text-slate-500 uppercase tracking-widest">Fraud Intelligence Unit</p>
+            <div className="text-right">
+              <p className="text-sm font-semibold text-gray-700">Report ID: FR-{currentCase.id}-{new Date().getFullYear()}</p>
+              <p className="text-xs text-gray-500">Generated: {formatDate(latestReport?.generated_at || latestReport?.created_at || new Date().toISOString())}</p>
+              <span className="text-xs font-bold text-red-600 border border-red-200 bg-red-50 px-2 py-0.5 rounded mt-1 inline-block">
+                CONFIDENTIAL
+              </span>
             </div>
-          </div>
-          <div className="text-right">
-            <p className="text-sm font-bold text-slate-900">Report ID: FR-{currentCase.id}-{new Date().getFullYear()}</p>
-            <p className="text-sm text-slate-500">Generated: {formatDate(latestReport?.generated_at || latestReport?.created_at || new Date().toISOString())}</p>
-            <p className="text-sm text-slate-500">Classification: <span className="font-bold text-red-600">CONFIDENTIAL</span></p>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 mb-8">
+        <div className="px-8 py-6 grid grid-cols-3 gap-6">
           {/* SECTION B — RISK SCORE CARD */}
           <div className={`p-6 rounded-xl border-2 text-center flex flex-col justify-center h-full ${
-            currentCase.risk_score > 75 ? "bg-red-50 border-red-200" : 
-            currentCase.risk_score > 40 ? "bg-amber-50 border-amber-200" : 
+            displayScore > 65 ? "bg-red-50 border-red-200" : 
+            displayScore > 35 ? "bg-amber-50 border-amber-200" : 
             "bg-emerald-50 border-emerald-200"
           }`}>
             <p className="text-sm font-bold uppercase tracking-wider mb-2 text-slate-500">Overall Risk Score</p>
             <p className={`text-7xl font-black mb-2 tracking-tighter ${
-              currentCase.risk_score > 75 ? "text-red-600" : 
-              currentCase.risk_score > 40 ? "text-amber-600" : 
+              displayScore > 65 ? "text-red-600" : 
+              displayScore > 35 ? "text-amber-600" : 
               "text-emerald-600"
             }`}>
-              {currentCase.risk_score}
+              {displayScore}
             </p>
             <p className={`text-lg font-black uppercase tracking-wide ${
-              currentCase.risk_score > 75 ? "text-red-700" : 
-              currentCase.risk_score > 40 ? "text-amber-700" : 
+              displayScore > 65 ? "text-red-700" : 
+              displayScore > 35 ? "text-amber-700" : 
               "text-emerald-700"
             }`}>
-              {currentCase.risk_score > 75 ? "High Risk" : currentCase.risk_score > 40 ? "Medium Risk" : "Low Risk"}
+              {riskLevel === 'HIGH' ? 'High Risk' : riskLevel === 'MEDIUM' ? 'Medium Risk' : 'Low Risk'}
             </p>
           </div>
 
-          <div className="col-span-2 flex flex-col space-y-6">
-            <section className="bg-slate-50 rounded-xl p-5 border border-slate-200">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Case Details</h3>
+          <div className="col-span-2 flex flex-col space-y-4">
+            <section className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Case Details</h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="font-medium text-slate-500 block mb-0.5">Applicant Name</span> <span className="font-bold text-slate-900">{currentCase.applicant_name}</span></div>
-                <div><span className="font-medium text-slate-500 block mb-0.5">Case Reference</span> <span className="font-bold text-slate-900">CASE-{currentCase.id}</span></div>
-                <div className="col-span-2"><span className="font-medium text-slate-500 block mb-0.5">Property Address</span> <span className="font-bold text-slate-900">{currentCase.property_address}</span></div>
+                <div><span className="font-medium text-gray-500 block mb-0.5">Applicant Name</span> <span className="font-bold text-gray-900">{currentCase.applicant_name}</span></div>
+                <div><span className="font-medium text-gray-500 block mb-0.5">Case Reference</span> <span className="font-bold text-gray-900">CASE-{currentCase.id}</span></div>
+                <div className="col-span-2"><span className="font-medium text-gray-500 block mb-0.5">Property Address</span> <span className="font-bold text-gray-900">{currentCase.property_address}</span></div>
               </div>
             </section>
             
-            <section className="bg-slate-50 rounded-xl p-5 border border-slate-200 flex-1">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Executive Summary</h3>
-              <p className="text-sm text-slate-700 leading-relaxed font-medium">
+            <section className="bg-gray-50 rounded-xl p-5 border border-gray-200 flex-1">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Executive Summary</h3>
+              <p className="text-sm text-gray-700 leading-relaxed">
                 {latestReport ? latestReport.findings : "Pending final review."}
               </p>
             </section>
           </div>
         </div>
 
-        {/* SECTION C — FRAUD FINDINGS */}
-        <section className="mb-8">
-          <h3 className="text-lg font-bold text-slate-900 mb-4 uppercase border-b-2 border-slate-200 pb-2 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-slate-400" />
+        <div className="px-8 py-6 border-t border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4 flex items-center">
+            <FileText className="w-4 h-4 mr-2 text-gray-400" />
             Detailed Investigation Findings
           </h3>
           {uniqueReports.length > 0 ? (
             <div className="space-y-4">
-              {uniqueReports.map((report, idx) => (
-                <div key={idx} className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-                    <h4 className="font-bold text-slate-800">{report.fraud_category}</h4>
-                    <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200">
-                      Score Impact: {report.risk_score}
-                    </span>
-                  </div>
-                  <div className="p-4">
-                    <div className="mb-4">
-                      <p className="text-xs font-bold text-slate-500 uppercase mb-1">Observation</p>
-                      <p className="text-sm text-slate-700">{report.findings}</p>
-                    </div>
-                    {report.recommendation && (
-                      <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                        <p className="text-xs font-bold text-slate-500 uppercase mb-1">Recommendation</p>
-                        <p className="text-sm font-medium text-slate-800">{report.recommendation}</p>
+              {uniqueReports.map((report, idx) => {
+                // Parse ml_result if it's stored as a JSON string
+                const ml = (typeof report.ml_result === 'string'
+                  ? (() => { try { return JSON.parse(report.ml_result); } catch { return {}; } })()
+                  : report.ml_result) || {};
+
+                const docType   = ml.doc_type || report.fraud_category || 'Document';
+                const docScore  = ml.final_score_pct ?? ml.risk_score ?? report.risk_score ?? 0;
+                const integrity = ml.trufor_score ?? null;
+                const conflicts = ml.conflicts || [];
+                // One-line forensic summary — never repeat the full LLM text
+                const forensicLine = integrity !== null
+                  ? `Integrity: ${Math.round(integrity * 100)}% authentic — ${integrity > 0.8 ? 'appears genuine' : integrity > 0.5 ? 'minor anomalies' : 'tampering concerns'}.`
+                  : 'Forensic scan unavailable for this format.';
+
+                // Key finding = first sentence of findings text only
+                const firstSentence = (report.findings || '').split(/[.!?]/)[0].trim();
+
+                return (
+                  <div key={idx} className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                    <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                      <div>
+                        <h4 className="font-bold text-slate-800">{docType}</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">{report.fraud_category}</p>
                       </div>
-                    )}
+                      <span className={`text-xs font-bold px-2 py-1 rounded border ${
+                        docScore > 65 ? 'bg-red-100 text-red-800 border-red-200'
+                        : docScore > 35 ? 'bg-amber-100 text-amber-800 border-amber-200'
+                        : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                      }`}>
+                        Risk Score: {Math.round(docScore)}
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase">Forensic Assessment</p>
+                      <p className="text-sm text-slate-700">{forensicLine}</p>
+                      <p className="text-xs text-slate-500">
+                        {conflicts.length > 0
+                          ? `⚠ ${conflicts.length} conflict(s) detected.`
+                          : '✓ No conflicts found.'}
+                      </p>
+                      {firstSentence && (
+                        <div className="mt-2 bg-slate-50 p-3 rounded border border-slate-200">
+                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Key Finding</p>
+                          <p className="text-sm font-medium text-slate-800">{firstSentence}.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
-            <div className="text-sm text-slate-500 p-8 text-center border border-dashed border-slate-300 rounded-lg">
+            <div className="text-sm text-gray-500 p-8 text-center border border-dashed border-gray-300 rounded-lg">
               AI Verification results will populate here once documents are fully processed.
             </div>
           )}
-        </section>
+        </div>
 
         {/* Signatures */}
-        <div className="mt-16 pt-8 grid grid-cols-2 gap-8 text-sm">
+        <div className="px-8 py-6 border-t border-gray-100 grid grid-cols-2 gap-8 text-sm bg-gray-50">
           <div>
-            <div className="border-b border-slate-400 h-10 mb-2 w-48"></div>
-            <p className="font-bold text-slate-900">System Generated</p>
-            <p className="text-slate-500">DhanRakshak AI</p>
+            <div className="border-b border-gray-400 h-10 mb-2 w-48"></div>
+            <p className="font-bold text-gray-900">System Generated</p>
+            <p className="text-gray-500">DhanRakshak AI · {new Date().toLocaleDateString('en-IN')}</p>
           </div>
           <div>
-            <div className="border-b border-slate-400 h-10 mb-2 w-48"></div>
-            <p className="font-bold text-slate-900">Assigned Officer</p>
-            <p className="text-slate-500">ID: {currentCase.assigned_officer_id || 'Unassigned'}</p>
+            <div className="border-b border-gray-400 h-10 mb-2 w-48"></div>
+            <p className="font-bold text-gray-900">Assigned Officer</p>
+            <p className="text-gray-500">ID: {currentCase.assigned_officer_id || 'Unassigned'}</p>
           </div>
         </div>
       </div>
