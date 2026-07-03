@@ -47,7 +47,7 @@ export function AuditLogs() {
       </div>
 
       <div className="enterprise-card flex-1 flex flex-col min-h-0">
-        <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap gap-4 items-center justify-between">
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-wrap gap-4 items-center justify-between rounded-t-[24px]">
           <div className="w-full sm:max-w-md">
             <Input 
               icon={Search} 
@@ -64,7 +64,7 @@ export function AuditLogs() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-auto bg-slate-50">
+        <div className="flex-1 overflow-auto bg-slate-50 rounded-b-[24px]">
           {isLoading ? (
             <div className="flex h-full items-center justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>

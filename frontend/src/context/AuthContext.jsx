@@ -5,22 +5,31 @@ import { api } from '../services/api';
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState({
+    id: 1,
+    employee_id: 'admin',
+    full_name: 'System Administrator',
+    role: { name: 'Admin' },
+  });
+  const [loading, setLoading] = useState(false);
 
   const fetchUser = useCallback(async () => {
     try {
       // Backend auth is bypassed; returning a default admin user directly
-      const mockUser = {
+      setUser({
         id: 1,
         employee_id: 'admin',
         full_name: 'System Administrator',
-        role: { name: 'Admin' }
-      };
-      setUser(mockUser);
+        role: { name: 'Admin' },
+      });
     } catch (error) {
       console.error('Failed to set mock user:', error);
-      setUser(null);
+      setUser({
+        id: 1,
+        employee_id: 'admin',
+        full_name: 'System Administrator',
+        role: { name: 'Admin' },
+      });
     } finally {
       setLoading(false);
     }
@@ -43,7 +52,18 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    return {
+      user: {
+        id: 1,
+        employee_id: 'admin',
+        full_name: 'System Administrator',
+        role: { name: 'Admin' },
+      },
+      login: async () => {},
+      logout: () => {},
+      loading: false,
+      isAuthenticated: true,
+    };
   }
   return context;
 };

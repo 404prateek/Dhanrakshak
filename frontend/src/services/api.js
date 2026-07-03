@@ -75,13 +75,34 @@ export const api = {
   },
   
   // Documents
-  uploadDocument: async (caseId, file) => {
+  // Accepts optional onUploadProgress callback for progress UI
+  uploadDocument: async (caseId, file, onUploadProgress, signal) => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await apiClient.post(`/cases/${caseId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    return response.data;
+    try {
+      if (onUploadProgress) {
+        try { onUploadProgress(0); } catch (e) { /* swallow callback errors */ }
+      }
+      const response = await fetch(`${API_BASE_URL}/cases/${caseId}/documents`, {
+        method: 'POST',
+        body: formData,
+        signal,
+        headers: {
+          Authorization: apiClient.defaults.headers.Authorization || `Bearer ${localStorage.getItem('dhanrakshak_token') || ''}`,
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Upload failed with status ${response.status}`);
+      }
+      const data = await response.json();
+      if (onUploadProgress) {
+        try { onUploadProgress(100); } catch (e) { /* swallow callback errors */ }
+      }
+      return data;
+    } catch (error) {
+      throw error;
+    }
   },
   
   // Notes

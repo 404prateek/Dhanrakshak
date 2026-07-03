@@ -1,23 +1,24 @@
 import { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Briefcase, 
-  Search, 
-  FileText, 
-  ShieldAlert, 
-  Users, 
+import {
+  LayoutDashboard,
+  Briefcase,
+  Search,
+  FileText,
+  ShieldAlert,
+  Users,
   Settings,
   LogOut,
   Menu,
-  UploadCloud
+  UploadCloud,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
 
 export function EnterpriseSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  // Static sidebar: always expanded for enterprise layout
+  const collapsed = false;
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,7 +33,7 @@ export function EnterpriseSidebar() {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', basePath: '/dashboard', icon: LayoutDashboard },
-    { name: 'Data Ingest', path: '/ingest', basePath: '/ingest', icon: UploadCloud },
+    { name: 'Data Ingestion', path: '/ingest', basePath: '/ingest', icon: UploadCloud },
     { name: 'Cases', path: '/cases', basePath: '/cases', icon: Briefcase },
     { name: 'Investigation', path: currentCaseId ? `/investigation/${currentCaseId}` : '#', basePath: '/investigation', icon: Search, requiresCase: true },
     { name: 'Fraud Reports', path: currentCaseId ? `/fraud-reports/${currentCaseId}` : '#', basePath: '/fraud-reports', icon: FileText, requiresCase: true },
@@ -49,33 +50,53 @@ export function EnterpriseSidebar() {
     }
   };
 
+  const [sidebarOnly, setSidebarOnly] = useState(false);
+
+  const toggleSidebarOnly = () => {
+    setSidebarOnly(v => {
+      const next = !v;
+      try {
+        if (next) document.body.classList.add('sidebar-only'); else document.body.classList.remove('sidebar-only');
+      } catch (e) {}
+      return next;
+    });
+  };
+
   return (
-    <div className={cn(
-      "flex flex-col h-screen bg-slate-900 text-slate-300 transition-all duration-300 border-r border-slate-800",
-      collapsed ? "w-20" : "w-64"
-    )}>
-      {/* Logo Area */}
-      <div className="flex items-center justify-between h-16 px-4 bg-slate-950 border-b border-slate-800">
-        {!collapsed && (
-          <div className="flex items-center space-x-2">
-            <img src="/logo.png" alt="DhanRakshak" className="w-8 h-8 object-contain" />
-            <span className="text-xl font-bold text-white tracking-tight">DhanRakshak</span>
+    <div
+      className={cn(
+        'flex flex-col h-screen transition-all duration-300 border-r w-64',
+        'border-slate-200'
+      )}
+      style={{ background: 'var(--bg)' }}
+    >
+      <div className="flex items-center justify-between h-16 px-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--canara-blue-700)] text-xl font-bold text-white shadow-sm">
+            D
           </div>
-        )}
-        {collapsed && (
-          <img src="/logo.png" alt="DhanRakshak" className="w-8 h-8 object-contain mx-auto" />
-        )}
-        <button 
-          onClick={() => setCollapsed(!collapsed)}
-          className={cn("p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors", collapsed && "hidden")}
-        >
-          <Menu className="w-5 h-5" />
-        </button>
+          <div>
+            <p className="text-sm font-semibold tracking-[0.02em] text-slate-900">Dhanrakshak</p>
+            <p className="text-xs text-slate-500">Fraud Intelligence</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleSidebarOnly}
+            className={cn('rounded-full p-2 text-slate-600 transition-fast hover:bg-slate-100', sidebarOnly && 'bg-slate-100')}
+            aria-pressed={sidebarOnly}
+            aria-label="Show only sidebar"
+            title="Show only sidebar"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="16" rx="2" ry="2"/><rect x="7" y="8" width="4" height="8"/></svg>
+          </button>
+        </div>
       </div>
 
-      {/* Nav Links */}
-      <div className="flex-1 overflow-y-auto py-4">
-        <nav className="space-y-1 px-2">
+      <div className="flex-1 overflow-y-auto py-5 px-3">
+
+        <nav className="space-y-2">
           {navItems.map((item) => {
             const isActive = location.pathname.startsWith(item.basePath);
             return (
@@ -83,43 +104,43 @@ export function EnterpriseSidebar() {
                 key={item.name}
                 to={item.path}
                 onClick={(e) => handleNavClick(e, item)}
-                className={cn(
-                  "flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors group",
-                  isActive
-                    ? "bg-blue-600 text-white" 
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                className={cn('flex items-center gap-3 px-3 py-2 text-sm rounded-[12px] transition-fast',
+                  isActive ? 'bg-blue-50 text-[var(--canara-blue-700)] font-semibold' : 'text-slate-700 hover:bg-slate-50'
                 )}
               >
-              <item.icon className={cn("flex-shrink-0 w-5 h-5", collapsed ? "mx-auto" : "mr-3")} />
-              {!collapsed && <span>{item.name}</span>}
-            </NavLink>
+                {/* left active indicator */}
+                {!collapsed && isActive && <span className="w-1 h-6 rounded-r-full bg-[var(--canara-blue-700)]" />}
+                <item.icon className={cn('flex-shrink-0', collapsed ? 'mx-auto w-5 h-5' : 'w-4 h-4')} />
+                {!collapsed && <span>{item.name}</span>}
+              </NavLink>
             );
           })}
         </nav>
       </div>
 
-      {/* User Area */}
-      <div className="p-4 bg-slate-950 border-t border-slate-800">
-        <div className="flex items-center">
-          <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 flex-shrink-0 uppercase font-bold text-sm">
-            {user?.full_name ? user.full_name.substring(0, 2) : 'DR'}
+      {/* Removed Tip panel per design: keep sidebar clean and professional */}
+
+      <div className="px-4 pb-5">
+        <div className="enterprise-panel p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-900">{user?.full_name?.substring(0, 2) ?? 'DR'}</div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900 leading-5">{user?.full_name || 'System Administrator'}</p>
+                <p className="text-xs text-slate-500 leading-4">{user?.role?.name || 'Admin'}</p>
+              </div>
+            )}
           </div>
           {!collapsed && (
-            <div className="ml-3 flex-1 overflow-hidden">
-              <p className="text-sm font-medium text-white truncate">{user?.full_name || 'System Admin'}</p>
-              <p className="text-xs text-slate-400 truncate">{user?.role?.name || 'Admin'}</p>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="mt-4 enterprise-btn w-full bg-[var(--canara-blue-700)] text-white"
+            >
+              <LogOut className="mr-2 h-4 w-4 inline-block" />
+              Sign Out
+            </button>
           )}
         </div>
-        {!collapsed && (
-          <button 
-            onClick={handleLogout}
-            className="mt-4 flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-md hover:bg-slate-700 hover:text-white transition-colors"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </button>
-        )}
       </div>
     </div>
   );
