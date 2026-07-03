@@ -1,5 +1,4 @@
 import os
-import shutil
 from fastapi import UploadFile
 from app.core.config import settings
 
@@ -20,14 +19,20 @@ class LocalStorage:
         target_dir = os.path.join(self._abs_dir, subfolder)
         os.makedirs(target_dir, exist_ok=True)
         
-        abs_file_path = os.path.join(target_dir, file.filename)
+        # Sanitise filename — strip path separators that could escape the target dir
+        safe_name = os.path.basename(file.filename or "upload")
+        abs_file_path = os.path.join(target_dir, safe_name)
         
+        # Use await file.read() — FastAPI UploadFile is async; shutil.copyfileobj
+        # on file.file blocks the event loop and can produce empty files.
+        contents = await file.read()
         with open(abs_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(contents)
             
         # Return the relative path so the frontend getDocumentUrl logic works
-        relative_path = os.path.join(self.base_dir, subfolder, file.filename).replace("\\", "/")
+        relative_path = os.path.join(self.base_dir, subfolder, safe_name).replace("\\", "/")
         return relative_path
+
     
     def get_file(self, file_path: str) -> str:
         if not os.path.exists(file_path):

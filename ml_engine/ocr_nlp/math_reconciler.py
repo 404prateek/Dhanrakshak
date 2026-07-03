@@ -67,8 +67,8 @@ _MISMATCH_SCORE = 0.8
 _MIN_COUNT = 5
 
 # Near-sum search window: only flag a mismatch if the nearest sum is within
-# this fraction of the claimed total (50 %).
-_NEAR_SUM_WINDOW = 0.50
+# this fraction of the claimed total (5 %).
+_NEAR_SUM_WINDOW = 0.05
 
 # Minimum difference (as fraction of claimed total) to actually flag.
 # 20% gap required before flagging — suppresses rounding noise and

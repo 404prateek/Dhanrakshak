@@ -30,7 +30,8 @@ def create_fraud_report(
         risk_score=report_in.risk_score,
         fraud_category=report_in.fraud_category,
         findings=report_in.findings,
-        recommendation=report_in.recommendation
+        recommendation=report_in.recommendation,
+        ml_result=report_in.ml_result
     )
     db.add(report)
     db.commit()

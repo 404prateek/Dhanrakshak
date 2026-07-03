@@ -26,6 +26,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 from PIL import Image
 
+from ml_engine.forensic_vision.png_forensics import PNGForensicAnalyzer
+
 logger = logging.getLogger(__name__)
 
 # Add TruFor/TruFor_train_test to sys.path (lib/ and config/ live there)
@@ -230,11 +232,40 @@ class TruForDetector:
             new_size = (int(pil_image.size[0]*ratio), int(pil_image.size[1]*ratio))
             pil_image = pil_image.resize(new_size, Image.Resampling.LANCZOS)
 
-        return (
+        # ── Run Primary Pixel Forensics (TruFor/ELA) ──
+        pixel_result = (
             self._analyze_trufor(pil_image)
             if self.is_available
             else self._analyze_ela(pil_image)
         )
+
+        # ── Run PNG-Native Forensics (if applicable) ──
+        suffix = Path(file_path).suffix.lower()
+        if suffix in {".png", ".bmp", ".gif", ".webp", ".tiff", ".tif"}:
+            png_analyzer = PNGForensicAnalyzer()
+            png_result = png_analyzer.analyze(file_path)
+
+            if not png_result.get("error"):
+                png_risk = png_result.get("png_risk_score", 0.0)
+                png_integrity = round(max(0.0, 1.0 - png_risk), 6)
+
+                # Take the worst case between pixel forensics and PNG forensics
+                base_integrity = pixel_result.get("integrity_score", 1.0)
+                if base_integrity is None:
+                    base_integrity = 1.0
+                
+                final_integrity = min(base_integrity, png_integrity)
+                
+                pixel_result["integrity_score"] = final_integrity
+                pixel_result["is_tampered"] = final_integrity < 0.6
+                pixel_result["method"] = f"{pixel_result['method']} + PNG_Forensics"
+                
+                # Attach the PNG flags
+                if "png_flags" not in pixel_result:
+                    pixel_result["png_flags"] = []
+                pixel_result["png_flags"].extend(png_result.get("flags", []))
+
+        return pixel_result
 
     # ------------------------------------------------------------------
     # Internal analysis methods (accept PIL, not file paths)

@@ -12,6 +12,7 @@ class FraudReport(Base):
     fraud_category = Column(String, nullable=False)
     findings = Column(Text, nullable=False)
     recommendation = Column(Text, nullable=False)
+    ml_result = Column(Text, nullable=True)
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
     
     case = relationship("Case", back_populates="fraud_reports")

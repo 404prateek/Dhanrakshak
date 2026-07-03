@@ -22,34 +22,18 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle global 401s
+// No 401 handling needed — auth is fully bypassed on the backend
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      // Clear token and emit a custom event to trigger logout without circular dependencies
-      localStorage.removeItem('dhanrakshak_token');
-      window.dispatchEvent(new Event('auth:unauthorized'));
-    }
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // API Service Methods
 export const api = {
-  // Auth
-  login: async (username, password) => {
-    const formData = new URLSearchParams();
-    formData.append('username', username);
-    formData.append('password', password);
-    
-    // Auth endpoint requires application/x-www-form-urlencoded
-    const response = await apiClient.post('/auth/token', formData, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    return response.data;
-  },
+  // Auth — kept for interface compatibility but login is not needed
+  login: async () => {},
   
+
   // Users
   getCurrentUser: async () => {
     const response = await apiClient.get('/users/me');

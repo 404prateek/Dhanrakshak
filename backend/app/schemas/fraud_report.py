@@ -8,6 +8,7 @@ class FraudReportBase(BaseModel):
     fraud_category: str
     findings: str
     recommendation: str
+    ml_result: Optional[str] = None
 
 class FraudReportCreate(FraudReportBase):
     pass

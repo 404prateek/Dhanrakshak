@@ -31,7 +31,7 @@ class Document(Base):
     file_name = Column(String, nullable=False)
     file_type = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
-    uploaded_by = Column(Integer, ForeignKey("users.id"))
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
     
     case = relationship("Case", back_populates="documents")

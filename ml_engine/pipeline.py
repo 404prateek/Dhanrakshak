@@ -121,6 +121,7 @@ class DhanRakshakPipeline:
         self._behavior_analyzer: Optional[Any] = None
         self._score_fusion: Optional[Any] = None
         self._reporter: Optional[Any] = None
+        self._text_risk: Optional[Any] = None
 
         self._init_subsystems()
 
@@ -139,6 +140,15 @@ class DhanRakshakPipeline:
             logger.info("Pipeline: DocumentOCR ready.")
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning("Pipeline: DocumentOCR unavailable: %s", exc)
+
+        # Text Risk Analyzer (NLP Semantics)
+        try:
+            from ml_engine.ocr_nlp.text_risk_analyzer import TextRiskAnalyzer
+
+            self._text_risk = TextRiskAnalyzer()
+            logger.info("Pipeline: TextRiskAnalyzer ready.")
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Pipeline: TextRiskAnalyzer unavailable: %s", exc)
 
         # TruFor (forensic image analysis)
         try:
@@ -234,6 +244,14 @@ class DhanRakshakPipeline:
                 )
                 context["ocr_fields"] = result.ocr_result.structured_fields
                 logger.debug("OCR complete: %d fields extracted.", len(context["ocr_fields"]))
+                
+                # NLP Semantic Text Risk checks
+                if self._text_risk and result.ocr_result.full_text:
+                    nlp_conflicts = self._text_risk.analyze_text(result.ocr_result.full_text)
+                    if nlp_conflicts:
+                        context.setdefault("ocr_conflicts", []).extend(nlp_conflicts)
+                        logger.debug("TextRiskAnalyzer detected %d conflicts.", len(nlp_conflicts))
+
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("Pipeline OCR step failed: %s", exc)
                 result.errors["ocr"] = str(exc)

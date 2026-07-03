@@ -10,9 +10,11 @@ TruFor checkpoint is not reloaded on every request.
 
 import sys
 import os
+import re
 import concurrent.futures
 import logging
 import time
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,53 @@ from ml_engine.ocr_nlp.math_reconciler           import MathReconciler
 from ml_engine.behavioral_twin.behavior_analyzer  import BehaviorAnalyzer
 from ml_engine.trust_engine.score_fusion          import TrustEngine
 from ml_engine.llm_reporter.ollama_reporter       import OllamaReporter
+from ml_engine.ocr_nlp.text_risk_analyzer         import TextRiskAnalyzer
+# LLMSemanticScanner REMOVED — caused critical false positives on legitimate
+# government documents (OBC certs, income certs, DM office letters).
+# The tiny llama3.2:1b model hallucinated 'unregistered_institution' for real
+# government bodies like 'District Magistrate, Dwarka'.
+# Institution checking is now done ONLY via the deterministic
+# GOVERNMENT_WHITELIST_PATTERNS + DEFINITE_FRAUD_PATTERNS in document_ocr.py.
+
+
+# Hardcoded lists replaced by LLMSemanticScanner
+
+
+# ---------------------------------------------------------------------------
+# Image-level watermark / repeated-text detector
+# ---------------------------------------------------------------------------
+
+def _detect_watermark_image(file_path: str) -> List[Dict[str, Any]]:
+    """
+    Detect diagonal or repeated large-text watermarks (SAMPLE, VOID, SPECIMEN)
+    using simple image analysis. Returns a list of OCR-conflict-style dicts.
+    """
+    conflicts: List[Dict[str, Any]] = []
+    try:
+        import numpy as np
+        from PIL import Image
+
+        img = Image.open(file_path).convert("L")  # greyscale
+        arr = np.array(img, dtype=np.float32)
+
+        # Heuristic: check variance of rows vs columns.
+        # A diagonal watermark creates periodic low-frequency patterns.
+        # More reliably: check if large fractions of the image are mid-grey (watermark opacity ~30-50%)
+        # Real clean documents are bimodal (very dark text + very white background).
+        hist, _ = np.histogram(arr, bins=10, range=(0, 255))
+        total = arr.size
+        # Mid-grey range [80, 200] proportion
+        mid_grey_fraction = hist[3:8].sum() / total
+        if mid_grey_fraction > 0.99:   # Disabled: too many false positives on textured backgrounds
+            conflicts.append({
+                "type":     "watermark_detected",
+                "severity": "HIGH",
+                "message":  f"Image analysis suggests a semi-transparent watermark or overlay (mid-grey pixel fraction: {mid_grey_fraction:.1%})",
+            })
+            logger.warning("Watermark heuristic triggered: mid_grey_fraction=%.3f", mid_grey_fraction)
+    except Exception as exc:
+        logger.debug("Watermark image scan failed: %s", exc)
+    return conflicts
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (loaded once, reused on every request)
@@ -43,6 +92,8 @@ _math_rec = MathReconciler()
 _behavior = BehaviorAnalyzer()
 _trust    = TrustEngine()
 _reporter = OllamaReporter()
+_text_risk = TextRiskAnalyzer()
+# _llm_scanner removed — see note above imports
 
 
 # ---------------------------------------------------------------------------
@@ -141,13 +192,40 @@ def analyze_document(
         )
 
     # -------------------------------------------------------------------
-    # Stage 5: Trust / risk scoring (needs stage 1-4 results)
+    # Stage 5a: OCR Fraud Signal Detection (deterministic, offline)
+    # -------------------------------------------------------------------
+    # NOTE: LLM semantic institution checking was REMOVED here.
+    # It caused false positives on legitimate government documents.
+    # Fraud signals now come exclusively from the whitelist-first
+    # _detect_fraud_signals() in document_ocr.py (Stage 3 of OCR pipeline).
+    ocr_full_text = entities.get('full_text', '')
+    ocr_conflicts = list(entities.get('fraud_signals', []))  # from OCR Stage 3
+
+    # Add NLP Semantic Text checks
+    if ocr_full_text:
+        nlp_conflicts = _text_risk.analyze_text(ocr_full_text)
+        ocr_conflicts.extend(nlp_conflicts)
+
+    # Also attempt image-level watermark detection for image files
+    _img_exts = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif', '.webp'}
+    if os.path.splitext(file_path)[1].lower() in _img_exts:
+        ocr_conflicts.extend(_detect_watermark_image(file_path))
+
+    if ocr_conflicts:
+        logger.warning(
+            "Document semantic fraud signals detected: %d conflicts — %s",
+            len(ocr_conflicts),
+            [c['message'][:60] for c in ocr_conflicts],
+        )
+
+    # -------------------------------------------------------------------
+    # Stage 5b: Trust / risk scoring (needs stage 1-4 results)
     # -------------------------------------------------------------------
     trufor_forgery = 1.0 - integrity_score
     risk = _trust.compute_risk(
         trufor_score     = integrity_score,
         ela_score        = integrity_score,
-        ocr_conflicts    = [],
+        ocr_conflicts    = ocr_conflicts,
         behavioral_score = beh_result.risk_score,
         metadata_flags   = extra_flags,
         rule_base_score  = rule_base_score,
@@ -170,11 +248,13 @@ def analyze_document(
         'recommendation':  risk.get('recommendation', 'APPROVE'),
         'final_score':     risk.get('final_score', 0.0),
         'final_score_pct': risk.get('final_score_pct', 0.0),
+        'escalated':       risk.get('escalated', False),
+        'escalation_reason': risk.get('escalation_reason', None),
         'applicant_name':  (entities.get('names') or ['Unknown'])[0],
         'pan_number':      (entities.get('pan') or [''])[0],
         'doc_type':        entities.get('doc_type', 'Unknown'),
         'entities':        entities,
-        'conflicts':       [],
+        'conflicts':       ocr_conflicts,
         'metadata_flags':  extra_flags,
         'forensic_score':  trufor_forgery,
         'behavioral_score': beh_result.risk_score,
@@ -244,6 +324,23 @@ def analyze_document_pair(
     cross_result = _cv.validate(entities1, entities2, primary_type, secondary_type)
     conflicts = cross_result['conflicts']
 
+    # Include base OCR fraud signals
+    conflicts.extend(entities1.get('fraud_signals', []))
+    conflicts.extend(entities2.get('fraud_signals', []))
+
+    # Add NLP Semantic Text checks for both documents
+    if entities1.get('full_text'):
+        conflicts.extend(_text_risk.analyze_text(entities1['full_text']))
+    if entities2.get('full_text'):
+        conflicts.extend(_text_risk.analyze_text(entities2['full_text']))
+        
+    # Attempt image-level watermark detection for image files
+    _img_exts = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif', '.webp'}
+    if os.path.splitext(primary_path)[1].lower() in _img_exts:
+        conflicts.extend(_detect_watermark_image(primary_path))
+    if os.path.splitext(secondary_path)[1].lower() in _img_exts:
+        conflicts.extend(_detect_watermark_image(secondary_path))
+
     # Income fraud detection (if amounts provided)
     income_fraud_score = 0.0
     income_flags = []
@@ -290,7 +387,7 @@ def analyze_document_pair(
         'forensic_primary':    forensic1,
         'forensic_secondary':  forensic2,
         'metadata_flags':      all_flags,
-        'behavioral_score':    beh_result.get('anomaly_score', 0.0),
+        'behavioral_score':    beh_result.risk_score,
         'forensic_score':      combined_forgery,
         'behavioral':          beh_result,
         'breakdown':           risk.get('component_scores', {}),

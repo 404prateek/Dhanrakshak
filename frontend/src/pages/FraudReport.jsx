@@ -4,6 +4,7 @@ import { FileText, Printer, Download, ShieldAlert, CheckCircle2, AlertTriangle }
 import { Button } from '../components/ui/Button';
 import { api } from '../services/api';
 import { formatDate } from '../utils/helpers';
+import ReactMarkdown from 'react-markdown';
 
 /* eslint-disable react/no-unknown-property */
 const PRINT_STYLES = `
@@ -92,21 +93,34 @@ export function FraudReport() {
     );
   }
 
-  // Fix 2: Deduplicate reports to prevent duplicate findings
+  // Fix 2: Deduplicate reports to prevent duplicate findings.
+  // By using just the fraud_category (which now includes the filename),
+  // we ensure only the LATEST report for each document is displayed.
   const uniqueReportsMap = new Map();
   reports.forEach(report => {
-    uniqueReportsMap.set(report.fraud_category + '-' + report.findings, report);
+    const docName = report.fraud_category.includes(': ') 
+      ? report.fraud_category.split(': ').pop() 
+      : report.fraud_category;
+    uniqueReportsMap.set(docName, report);
   });
   const uniqueReports = Array.from(uniqueReportsMap.values());
 
   // FIX 4: Read the right score field — backend sends final_score_pct (0-100)
   // currentCase.risk_score is always 0 in DB until manually updated
   // The latest ML report has the real score in ml_result metadata
-  const mlResult = latestReport?.ml_result || {};
+  const mlResultRaw = latestReport?.ml_result;
+  let mlResult = {};
+  if (typeof mlResultRaw === 'string') {
+    try { mlResult = JSON.parse(mlResultRaw); } catch (e) { mlResult = {}; }
+  } else if (mlResultRaw) {
+    mlResult = mlResultRaw;
+  }
+
   const displayScore = Math.round(
     mlResult.final_score_pct
     ?? mlResult.risk_score
-    ?? ((mlResult.final_score ?? 0) * 100)
+    ?? (mlResult.final_score !== undefined ? mlResult.final_score * 100 : undefined)
+    ?? latestReport?.risk_score
     ?? currentCase.risk_score
     ?? 0
   );
@@ -208,9 +222,25 @@ export function FraudReport() {
             
             <section className="bg-gray-50 rounded-xl p-5 border border-gray-200 flex-1">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Executive Summary</h3>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {latestReport ? latestReport.findings : "Pending final review."}
-              </p>
+              <div className="text-sm text-gray-700 leading-relaxed">
+                {latestReport ? (
+                  <ReactMarkdown
+                    components={{
+                      h1: ({node, ...props}) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-md font-bold mt-3 mb-2" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-sm font-bold mt-3 mb-2" {...props} />,
+                      h4: ({node, ...props}) => <h4 className="text-sm font-semibold mt-2 mb-1" {...props} />,
+                      p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-2" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-2" {...props} />,
+                      li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />
+                    }}
+                  >
+                    {latestReport.findings}
+                  </ReactMarkdown>
+                ) : "Pending final review."}
+              </div>
             </section>
           </div>
         </div>
@@ -228,17 +258,27 @@ export function FraudReport() {
                   ? (() => { try { return JSON.parse(report.ml_result); } catch { return {}; } })()
                   : report.ml_result) || {};
 
-                const docType   = ml.doc_type || report.fraud_category || 'Document';
+                const fileName  = report.fraud_category.includes(': ') ? report.fraud_category.split(': ').pop() : 'Document';
+                const docType   = (ml.doc_type && ml.doc_type !== "Unknown Document") ? ml.doc_type : fileName;
                 const docScore  = ml.final_score_pct ?? ml.risk_score ?? report.risk_score ?? 0;
                 const integrity = ml.trufor_score ?? null;
-                const conflicts = ml.conflicts || [];
+                const conflicts = ml.conflicts || ml.ocr_conflicts || [];
                 // One-line forensic summary — never repeat the full LLM text
                 const forensicLine = integrity !== null
                   ? `Integrity: ${Math.round(integrity * 100)}% authentic — ${integrity > 0.8 ? 'appears genuine' : integrity > 0.5 ? 'minor anomalies' : 'tampering concerns'}.`
                   : 'Forensic scan unavailable for this format.';
 
-                // Key finding = first sentence of findings text only
-                const firstSentence = (report.findings || '').split(/[.!?]/)[0].trim();
+                // Fix Key Finding extraction to avoid rendering raw markdown
+                let summaryText = 'Review executive summary for details.';
+                if (report.recommendation) {
+                   summaryText = report.recommendation;
+                } else if (report.findings) {
+                   const cleanText = report.findings.replace(/[#*`]/g, '').trim();
+                   const match = cleanText.match(/([A-Z][^\.!?]*[\.!?])/);
+                   summaryText = match ? match[1].trim() : cleanText.substring(0, 150) + '...';
+                }
+
+                const ocrText = ml.ocr?.full_text || ml.extracted_text || '';
 
                 return (
                   <div key={idx} className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -263,10 +303,16 @@ export function FraudReport() {
                           ? `⚠ ${conflicts.length} conflict(s) detected.`
                           : '✓ No conflicts found.'}
                       </p>
-                      {firstSentence && (
+                      {summaryText && (
                         <div className="mt-2 bg-slate-50 p-3 rounded border border-slate-200">
-                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Key Finding</p>
-                          <p className="text-sm font-medium text-slate-800">{firstSentence}.</p>
+                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Summary</p>
+                          <p className="text-sm font-medium text-slate-800">{summaryText}</p>
+                        </div>
+                      )}
+                      {ocrText && (
+                        <div className="mt-2 bg-white p-3 rounded border border-slate-200">
+                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Extracted OCR Text</p>
+                          <div className="text-xs text-slate-700 max-h-40 overflow-y-auto whitespace-pre-wrap">{ocrText}</div>
                         </div>
                       )}
                     </div>

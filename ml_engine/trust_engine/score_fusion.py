@@ -243,14 +243,27 @@ class TrustEngine:
     anomaly_flags, anomaly_type.
     """
 
-    # Relative weights within the doc-forensic component
-    # Must sum to 1.0.
-    _W_TRUFOR  = 0.30   # TruFor/ELA integrity (inverted to forgery prob)
-    _W_ELA     = 0.20   # ELA anomaly
+    # Relative weights within the doc-forensic component.
+    # IMPORTANT: must sum to 1.0.
+    #
+    # Design rationale (v2 — post fake-document gap analysis)
+    # --------------------------------------------------------
+    # TruFor/ELA are JPEG-artifact detectors and give a false "clean" score
+    # for freshly-generated fake PNGs.  OCR semantic signals (fraud keywords,
+    # watermarks, fictional institutions) are now the PRIMARY detection layer
+    # and receive the largest single weight.  TruFor weight is reduced so a
+    # clean pixel score can no longer suppress genuine fraud signals.
+    _W_TRUFOR  = 0.20   # TruFor/ELA integrity — reduced; fooled by clean fakes
+    _W_ELA     = 0.15   # ELA anomaly
     _W_INCOME  = 0.20   # Income discrepancy fraud score
-    _W_OCR     = 0.20   # OCR cross-document conflicts
-    _W_META    = 0.05   # Metadata flags
-    _W_RULE    = 0.05   # Legacy rule-engine score
+    _W_OCR     = 0.35   # OCR semantic conflicts — PRIMARY fraud signal (raised)
+    _W_META    = 0.07   # Metadata flags (raised; metadata_stripped now weighted)
+    _W_RULE    = 0.03   # Legacy rule-engine score (reduced)
+
+    # Minimum doc_forensic_score enforced when HIGH-severity OCR conflicts exist.
+    # This prevents a clean TruFor pixel score from masking obvious textual fraud.
+    # Value of 0.85 → final_score = 0.85 × 0.60 = 0.51 + escalator → HIGH.
+    _OCR_HIGH_FLOOR = 0.85
 
     def __init__(
         self,
@@ -334,6 +347,20 @@ class TrustEngine:
         if benford > 0.0:
             raw = raw * 0.95 + benford * 0.05
 
+        # -------------------------------------------------------------------
+        # HIGH-severity OCR floor
+        # -------------------------------------------------------------------
+        # If ANY OCR conflict is HIGH severity (fraud keyword, fictional
+        # institution, etc.) we enforce a minimum doc_forensic_score of
+        # _OCR_HIGH_FLOOR.  This prevents a clean TruFor pixel score from
+        # masking textually-obvious fabricated documents.
+        has_high_ocr = any(
+            (c.get("severity") or "").upper() == "HIGH"
+            for c in ocr_conflicts
+        )
+        if has_high_ocr:
+            raw = max(raw, self._OCR_HIGH_FLOOR)
+
         return round(min(raw, 1.0), 6)
 
     # ------------------------------------------------------------------
@@ -406,21 +433,23 @@ class TrustEngine:
             msg = c.get("message") or c.get("type") or "ocr_conflict"
             anomaly_flags.append(msg)
 
-        anomaly_type: str
-        if risk_level == "HIGH":
-            anomaly_type = "document_fraud"
-        elif risk_level == "MEDIUM":
-            anomaly_type = "suspicious_activity"
-        else:
-            anomaly_type = "none"
-
         # Build top risk factors list for reporter
         top_risk_factors: list = []
+
+        # OCR semantic conflicts listed FIRST — they are now the primary signal
+        for c in ocr_conflicts[:5]:
+            top_risk_factors.append({
+                "factor":   c.get("type", "ocr_conflict"),
+                "detail":   c.get("message", ""),
+                "severity": c.get("severity", "MEDIUM"),
+                "score":    0.9 if c.get("severity") == "HIGH" else 0.55,
+            })
+
         if trufor_score < 0.85:
             top_risk_factors.append({
                 "factor":   "Document integrity",
                 "detail":   f"TruFor integrity score {trufor_score:.3f}",
-                "severity": "HIGH" if trufor_score < 0.7 else "MEDIUM",
+                "severity": "HIGH" if trufor_score < 0.60 else "MEDIUM",
                 "score":    round(1.0 - trufor_score, 3),
             })
         if income_fraud_score > 0.2:
@@ -430,13 +459,102 @@ class TrustEngine:
                 "severity": "HIGH" if income_fraud_score > 0.4 else "MEDIUM",
                 "score":    round(income_fraud_score, 3),
             })
-        for c in ocr_conflicts[:3]:
+
+        # Surface metadata_stripped as a top risk factor for image documents
+        if "metadata_stripped" in metadata_flags:
             top_risk_factors.append({
-                "factor":   c.get("type", "conflict"),
-                "detail":   c.get("message", ""),
-                "severity": c.get("severity", "MEDIUM"),
-                "score":    0.8 if c.get("severity") == "HIGH" else 0.5,
+                "factor":   "metadata_stripped",
+                "detail":   "Image file has no EXIF metadata — may indicate synthetic/edited document",
+                "severity": "MEDIUM",
+                "score":    0.4,
             })
+
+        # -------------------------------------------------------------------
+        # Conflict Escalator Override
+        # -------------------------------------------------------------------
+        # DEFINITE fraud signals: unambiguous markers that ONLY appear in fake docs
+        _DEFINITE_SIGNAL_TYPES = {
+            "sample_watermark", "void_watermark", "lorem_ipsum", "dummy_text",
+            "demo_marker", "not_valid_marker", "fictional_marker", "fake_marker",
+            "test_document_marker", "apex_national_finance",
+            "itr_missing_acknowledgment",  # structural — ITR must have ack number
+        }
+
+        definite_fraud_signals = [
+            c for c in ocr_conflicts
+            if c.get("type") in _DEFINITE_SIGNAL_TYPES
+        ]
+        high_severity_conflicts = [
+            c for c in ocr_conflicts
+            if c.get("severity") == "HIGH"
+        ]
+        medium_severity_factors = [
+            f for f in top_risk_factors
+            if f.get("severity") == "MEDIUM"
+        ]
+        high_severity_factors = [
+            f for f in top_risk_factors
+            if f.get("severity") == "HIGH"
+        ]
+
+        escalated = False
+        escalation_reason = None
+
+        if len(definite_fraud_signals) >= 1:
+            # Unambiguous fraud marker → always HIGH regardless of TruFor score
+            risk_level = "HIGH"
+            recommendation = "REJECT"
+            escalated = True
+            escalation_reason = (
+                f"Definite fraud marker detected: {definite_fraud_signals[0]['type']}"
+            )
+
+        elif len(high_severity_factors) >= 3 or (len(high_severity_factors) >= 1 and len(medium_severity_factors) >= 1):
+            # 3+ HIGH factors OR (1 HIGH + 1+ MEDIUM) → escalate to HIGH.
+            # Example: TruFor < 0.60 (HIGH) + metadata_stripped (MEDIUM) = HIGH / REJECT.
+            risk_level = "HIGH"
+            recommendation = "REJECT"
+            escalated = True
+            escalation_reason = (
+                "Multiple high/medium risk anomalies detected — strong evidence of tampering"
+            )
+
+        elif len(high_severity_factors) >= 1:
+            # Single HIGH factor with NO other factors → escalate to MEDIUM (Manual Review).
+            # Example: TruFor < 0.60 but document is otherwise perfect (could be false positive).
+            if risk_level == "LOW":
+                risk_level = "MEDIUM"
+                recommendation = "MANUAL_REVIEW"
+                escalated = True
+                escalation_reason = (
+                    "Single high risk factor detected — escalated for manual review"
+                )
+
+        elif len(medium_severity_factors) >= 2:
+            # 2+ MEDIUM factors on a LOW-scored doc → escalate to MEDIUM.
+            # Example: TruFor < 0.85 (MEDIUM) + metadata_stripped (MEDIUM) = MEDIUM.
+            if risk_level == "LOW":
+                risk_level = "MEDIUM"
+                recommendation = "MANUAL_REVIEW"
+                escalated = True
+                escalation_reason = (
+                    f"{len(medium_severity_factors)} MEDIUM risk factors — escalated for review"
+                )
+
+        # Recalculate final_score_pct if escalated to align visually with risk level bounds
+        if escalated:
+            if risk_level == "HIGH" and final_score < self._engine._threshold_high:
+                final_score = self._engine._threshold_high + 0.05
+            elif risk_level == "MEDIUM" and final_score < self._engine._threshold_medium:
+                final_score = self._engine._threshold_medium + 0.05
+
+        anomaly_type: str
+        if risk_level == "HIGH":
+            anomaly_type = "document_fraud"
+        elif risk_level == "MEDIUM":
+            anomaly_type = "suspicious_activity"
+        else:
+            anomaly_type = "none"
 
         return {
             "final_score":       final_score,
@@ -463,6 +581,8 @@ class TrustEngine:
             "anomaly_type":      anomaly_type,
             "top_risk_factors":  top_risk_factors,
             "conflicts":         ocr_conflicts,
+            "escalated":         escalated,
+            "escalation_reason": escalation_reason,
         }
 
 

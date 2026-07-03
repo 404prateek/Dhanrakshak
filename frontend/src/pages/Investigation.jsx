@@ -10,7 +10,7 @@ import { Button } from '../components/ui/Button';
 import { api, runMLAnalysis as runML, runCrossDocAnalysis } from '../services/api';
 import { cn, formatDate } from '../utils/helpers';
 import { MLResultCard } from '../components/MLResultCard';
-
+import { CrossDocComparisonCard } from '../components/CrossDocComparisonCard';
 export function Investigation() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -56,9 +56,10 @@ export function Investigation() {
         await api.createReport({
           case_id: caseId,
           risk_score: data.final_score_pct ?? data.risk_score ?? 0,
-          fraud_category: data.risk_level === 'LOW' ? 'Document AI Verified' : 'AI Analysis Findings',
+          fraud_category: data.risk_level === 'LOW' ? `Document Verified: ${doc.file_name}` : `Analysis Findings: ${doc.file_name}`,
           findings: findings || 'AI Analysis completed. No major fraud indicators found.',
-          recommendation: data.recommendation || 'APPROVE'
+          recommendation: data.recommendation || 'APPROVE',
+          ml_result: JSON.stringify(data)
         });
         queryClient.invalidateQueries(['reports', caseId]);
       }
@@ -91,9 +92,10 @@ export function Investigation() {
         await api.createReport({
           case_id: caseId,
           risk_score: data.final_score_pct ?? data.risk_score ?? 0,
-          fraud_category: 'Cross-Document Analysis',
+          fraud_category: `Cross-Document: ${pairPrimary.file_name} vs ${pairSecondary.file_name}`,
           findings: data.llm_report || 'Cross-document analysis completed.',
-          recommendation: data.recommendation || 'MANUAL_REVIEW'
+          recommendation: data.recommendation || 'MANUAL_REVIEW',
+          ml_result: JSON.stringify(data)
         });
         queryClient.invalidateQueries(['reports', caseId]);
       }
@@ -628,7 +630,7 @@ export function Investigation() {
 
                 {pairResult && (
                   <div className="mt-8">
-                    <MLResultCard result={pairResult} />
+                    <CrossDocComparisonCard result={pairResult} />
                   </div>
                 )}
               </div>

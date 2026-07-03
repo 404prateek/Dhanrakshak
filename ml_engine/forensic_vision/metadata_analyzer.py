@@ -120,10 +120,13 @@ class MetadataAnalyzer:
 
     _DEFAULT_WEIGHTS: Dict[str, float] = {
         "editing_software_detected": 0.35,
-        "thumbnail_mismatch": 0.25,
-        "timestamp_inconsistency": 0.20,
-        # Note: gps_absent and metadata_stripped removed —
-        # PDFs and legal documents legitimately have no GPS/EXIF data.
+        "thumbnail_mismatch":        0.25,
+        "timestamp_inconsistency":   0.20,
+        # metadata_stripped: an image file (PNG/JPEG) with zero EXIF is suspicious
+        # for a "scanned" bank document — genuine scans carry at minimum a scanner
+        # software tag.  PDFs and legal docs legitimately lack EXIF so the flag is
+        # only raised for image types (see analyze_bytes logic), making this safe.
+        "metadata_stripped":         0.15,
     }
 
     def __init__(self, risk_weights: Optional[Dict[str, float]] = None) -> None:
