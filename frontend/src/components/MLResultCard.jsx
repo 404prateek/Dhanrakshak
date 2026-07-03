@@ -90,7 +90,7 @@ export function MLResultCard({ result }) {
     {
       label: 'Conflicts',
       value: conflictCnt + ' found',
-      sub:   result.doc_type && result.doc_type.includes('+') ? 'Cross-document mismatches' : 'OCR & Semantic Anomalies',
+      sub:   'Cross-document mismatches',
       icon:  conflictCnt > 0 ? '⚡' : '✓',
       color: conflictCnt > 0 ? 'text-red-600' : 'text-green-600',
     },
@@ -355,20 +355,6 @@ export function MLResultCard({ result }) {
         </div>
       </div>
 
-      {/* ── Raw OCR Text ── */}
-      <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-        <details className="group cursor-pointer">
-          <summary className="text-xs font-semibold text-gray-500 uppercase tracking-widest flex items-center justify-between outline-none">
-            Raw OCR Extracted Text
-            <span className="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
-          </summary>
-          <div className="mt-3 bg-white border border-gray-200 rounded p-3 max-h-60 overflow-y-auto">
-            <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono">
-              {result.entities?.full_text || 'No text was successfully extracted from this document.'}
-            </pre>
-          </div>
-        </details>
-      </div>
     </div>
   );
 }

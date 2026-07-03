@@ -22,18 +22,34 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// No 401 handling needed — auth is fully bypassed on the backend
+// Response interceptor to handle global 401s
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(error)
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Clear token and emit a custom event to trigger logout without circular dependencies
+      localStorage.removeItem('dhanrakshak_token');
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+    return Promise.reject(error);
+  }
 );
 
 // API Service Methods
 export const api = {
-  // Auth — kept for interface compatibility but login is not needed
-  login: async () => {},
+  // Auth
+  login: async (username, password) => {
+    const formData = new URLSearchParams();
+    formData.append('username', username);
+    formData.append('password', password);
+    
+    // Auth endpoint requires application/x-www-form-urlencoded
+    const response = await apiClient.post('/auth/token', formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    return response.data;
+  },
   
-
   // Users
   getCurrentUser: async () => {
     const response = await apiClient.get('/users/me');
@@ -59,13 +75,34 @@ export const api = {
   },
   
   // Documents
-  uploadDocument: async (caseId, file) => {
+  // Accepts optional onUploadProgress callback for progress UI
+  uploadDocument: async (caseId, file, onUploadProgress, signal) => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await apiClient.post(`/cases/${caseId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    return response.data;
+    try {
+      if (onUploadProgress) {
+        try { onUploadProgress(0); } catch (e) { /* swallow callback errors */ }
+      }
+      const response = await fetch(`${API_BASE_URL}/cases/${caseId}/documents`, {
+        method: 'POST',
+        body: formData,
+        signal,
+        headers: {
+          Authorization: apiClient.defaults.headers.Authorization || `Bearer ${localStorage.getItem('dhanrakshak_token') || ''}`,
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Upload failed with status ${response.status}`);
+      }
+      const data = await response.json();
+      if (onUploadProgress) {
+        try { onUploadProgress(100); } catch (e) { /* swallow callback errors */ }
+      }
+      return data;
+    } catch (error) {
+      throw error;
+    }
   },
   
   // Notes

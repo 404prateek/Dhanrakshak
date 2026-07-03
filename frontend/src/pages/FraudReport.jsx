@@ -1,10 +1,9 @@
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, Printer, Download, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { api } from '../services/api';
 import { formatDate } from '../utils/helpers';
-import ReactMarkdown from 'react-markdown';
 
 /* eslint-disable react/no-unknown-property */
 const PRINT_STYLES = `
@@ -37,8 +36,8 @@ export function FraudReport() {
 
   if (!caseId) {
     return (
-      <div className="flex h-[calc(100vh-6rem)] items-center justify-center -m-6 bg-slate-50">
-        <div className="text-center max-w-md p-8 bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex h-[calc(100vh-6rem)] items-center justify-center -m-6 bg-slate-100">
+        <div className="text-center max-w-md p-8 enterprise-card">
           <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900 mb-2">No Case Selected</h2>
           <p className="text-slate-500 mb-6">Please select a case from the Cases menu to view its fraud report.</p>
@@ -61,7 +60,7 @@ export function FraudReport() {
   if (reportsError) {
     return (
       <div className="flex h-[calc(100vh-6rem)] items-center justify-center -m-6 bg-slate-50">
-        <div className="text-center max-w-md p-8 bg-white rounded-xl border border-red-200 shadow-sm">
+        <div className="text-center max-w-md p-8 enterprise-card border-red-200">
           <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900 mb-2">Failed to Load Reports</h2>
           <p className="text-slate-500 mb-6">There was an error communicating with the server. Please try again later.</p>
@@ -84,7 +83,7 @@ export function FraudReport() {
   if (!latestReport) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
-        <div className="p-8 text-center text-slate-500 bg-white shadow-sm rounded-lg border border-slate-200">
+        <div className="p-8 text-center text-slate-500 enterprise-panel">
           <ShieldAlert className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <h2 className="text-lg font-medium text-slate-900 mb-2">No Report Found</h2>
           <p>No fraud report available for this case.</p>
@@ -93,34 +92,21 @@ export function FraudReport() {
     );
   }
 
-  // Fix 2: Deduplicate reports to prevent duplicate findings.
-  // By using just the fraud_category (which now includes the filename),
-  // we ensure only the LATEST report for each document is displayed.
+  // Fix 2: Deduplicate reports to prevent duplicate findings
   const uniqueReportsMap = new Map();
   reports.forEach(report => {
-    const docName = report.fraud_category.includes(': ') 
-      ? report.fraud_category.split(': ').pop() 
-      : report.fraud_category;
-    uniqueReportsMap.set(docName, report);
+    uniqueReportsMap.set(report.fraud_category + '-' + report.findings, report);
   });
   const uniqueReports = Array.from(uniqueReportsMap.values());
 
   // FIX 4: Read the right score field — backend sends final_score_pct (0-100)
   // currentCase.risk_score is always 0 in DB until manually updated
   // The latest ML report has the real score in ml_result metadata
-  const mlResultRaw = latestReport?.ml_result;
-  let mlResult = {};
-  if (typeof mlResultRaw === 'string') {
-    try { mlResult = JSON.parse(mlResultRaw); } catch (e) { mlResult = {}; }
-  } else if (mlResultRaw) {
-    mlResult = mlResultRaw;
-  }
-
+  const mlResult = latestReport?.ml_result || {};
   const displayScore = Math.round(
     mlResult.final_score_pct
     ?? mlResult.risk_score
-    ?? (mlResult.final_score !== undefined ? mlResult.final_score * 100 : undefined)
-    ?? latestReport?.risk_score
+    ?? ((mlResult.final_score ?? 0) * 100)
     ?? currentCase.risk_score
     ?? 0
   );
@@ -146,27 +132,29 @@ export function FraudReport() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6 px-4 sm:px-6 lg:px-8">
       {/* Inject print styles */}
       <style dangerouslySetInnerHTML={{ __html: PRINT_STYLES }} />
 
-      <div className="flex justify-between items-end no-print">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Fraud Investigation Report</h1>
-          <p className="mt-1 text-sm text-gray-500">Official generated report for CASE-{currentCase.id}</p>
-        </div>
-        <div className="flex space-x-2">
-          <Button variant="secondary" icon={Download} onClick={handleDownloadPDF}>Download PDF</Button>
-          <Button variant="primary" icon={Printer} onClick={handlePrint}>Print Report</Button>
+      <div className="enterprise-panel p-6 no-print">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Fraud Investigation Report</h1>
+            <p className="mt-2 text-sm text-slate-500">Official generated report for CASE-{currentCase.id}</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button variant="secondary" icon={Download} onClick={handleDownloadPDF}>Download PDF</Button>
+            <Button variant="primary" icon={Printer} onClick={handlePrint}>Print Report</Button>
+          </div>
         </div>
       </div>
 
-      <div id="report-content" className="print-container bg-white shadow-sm rounded-xl border border-gray-200 overflow-hidden print:shadow-none print:border-none">
+      <div id="report-content" className="print-container enterprise-card overflow-hidden print:shadow-none print:border-none">
         {/* SECTION A — REPORT HEADER */}
-        <div className="bg-white border-b border-gray-200 px-8 py-6">
+        <div className="bg-white border-b border-gray-200 px-8 py-6 rounded-t-[24px]">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-700 rounded-lg flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+              <div className="w-12 h-12 bg-blue-700 rounded-[18px] flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
                 DR
               </div>
               <div>
@@ -188,7 +176,7 @@ export function FraudReport() {
 
         <div className="px-8 py-6 grid grid-cols-3 gap-6">
           {/* SECTION B — RISK SCORE CARD */}
-          <div className={`p-6 rounded-xl border-2 text-center flex flex-col justify-center h-full ${
+          <div className={`p-6 rounded-[24px] border-2 text-center flex flex-col justify-center h-full ${
             displayScore > 65 ? "bg-red-50 border-red-200" : 
             displayScore > 35 ? "bg-amber-50 border-amber-200" : 
             "bg-emerald-50 border-emerald-200"
@@ -211,7 +199,7 @@ export function FraudReport() {
           </div>
 
           <div className="col-span-2 flex flex-col space-y-4">
-            <section className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+            <section className="bg-gray-50 rounded-[24px] p-5 border border-gray-200">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Case Details</h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><span className="font-medium text-gray-500 block mb-0.5">Applicant Name</span> <span className="font-bold text-gray-900">{currentCase.applicant_name}</span></div>
@@ -220,27 +208,11 @@ export function FraudReport() {
               </div>
             </section>
             
-            <section className="bg-gray-50 rounded-xl p-5 border border-gray-200 flex-1">
+            <section className="bg-gray-50 rounded-[24px] p-5 border border-gray-200 flex-1">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Executive Summary</h3>
-              <div className="text-sm text-gray-700 leading-relaxed">
-                {latestReport ? (
-                  <ReactMarkdown
-                    components={{
-                      h1: ({node, ...props}) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
-                      h2: ({node, ...props}) => <h2 className="text-md font-bold mt-3 mb-2" {...props} />,
-                      h3: ({node, ...props}) => <h3 className="text-sm font-bold mt-3 mb-2" {...props} />,
-                      h4: ({node, ...props}) => <h4 className="text-sm font-semibold mt-2 mb-1" {...props} />,
-                      p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-                      ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-2" {...props} />,
-                      ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-2" {...props} />,
-                      li: ({node, ...props}) => <li className="mb-1" {...props} />,
-                      strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />
-                    }}
-                  >
-                    {latestReport.findings}
-                  </ReactMarkdown>
-                ) : "Pending final review."}
-              </div>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {latestReport ? latestReport.findings : "Pending final review."}
+              </p>
             </section>
           </div>
         </div>
@@ -258,31 +230,21 @@ export function FraudReport() {
                   ? (() => { try { return JSON.parse(report.ml_result); } catch { return {}; } })()
                   : report.ml_result) || {};
 
-                const fileName  = report.fraud_category.includes(': ') ? report.fraud_category.split(': ').pop() : 'Document';
-                const docType   = (ml.doc_type && ml.doc_type !== "Unknown Document") ? ml.doc_type : fileName;
+                const docType   = ml.doc_type || report.fraud_category || 'Document';
                 const docScore  = ml.final_score_pct ?? ml.risk_score ?? report.risk_score ?? 0;
                 const integrity = ml.trufor_score ?? null;
-                const conflicts = ml.conflicts || ml.ocr_conflicts || [];
+                const conflicts = ml.conflicts || [];
                 // One-line forensic summary — never repeat the full LLM text
                 const forensicLine = integrity !== null
                   ? `Integrity: ${Math.round(integrity * 100)}% authentic — ${integrity > 0.8 ? 'appears genuine' : integrity > 0.5 ? 'minor anomalies' : 'tampering concerns'}.`
                   : 'Forensic scan unavailable for this format.';
 
-                // Fix Key Finding extraction to avoid rendering raw markdown
-                let summaryText = 'Review executive summary for details.';
-                if (report.recommendation) {
-                   summaryText = report.recommendation;
-                } else if (report.findings) {
-                   const cleanText = report.findings.replace(/[#*`]/g, '').trim();
-                   const match = cleanText.match(/([A-Z][^\.!?]*[\.!?])/);
-                   summaryText = match ? match[1].trim() : cleanText.substring(0, 150) + '...';
-                }
-
-                const ocrText = ml.ocr?.full_text || ml.extracted_text || '';
+                // Key finding = first sentence of findings text only
+                const firstSentence = (report.findings || '').split(/[.!?]/)[0].trim();
 
                 return (
-                  <div key={idx} className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-                    <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                  <div key={idx} className="enterprise-panel overflow-hidden">
+                    <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center rounded-t-[24px]">
                       <div>
                         <h4 className="font-bold text-slate-800">{docType}</h4>
                         <p className="text-xs text-slate-500 mt-0.5">{report.fraud_category}</p>
@@ -303,16 +265,10 @@ export function FraudReport() {
                           ? `⚠ ${conflicts.length} conflict(s) detected.`
                           : '✓ No conflicts found.'}
                       </p>
-                      {summaryText && (
-                        <div className="mt-2 bg-slate-50 p-3 rounded border border-slate-200">
-                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Summary</p>
-                          <p className="text-sm font-medium text-slate-800">{summaryText}</p>
-                        </div>
-                      )}
-                      {ocrText && (
-                        <div className="mt-2 bg-white p-3 rounded border border-slate-200">
-                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Extracted OCR Text</p>
-                          <div className="text-xs text-slate-700 max-h-40 overflow-y-auto whitespace-pre-wrap">{ocrText}</div>
+                      {firstSentence && (
+                        <div className="mt-2 bg-slate-50 p-3 rounded-[20px] border border-slate-200">
+                          <p className="text-xs font-bold text-slate-500 uppercase mb-1">Key Finding</p>
+                          <p className="text-sm font-medium text-slate-800">{firstSentence}.</p>
                         </div>
                       )}
                     </div>
@@ -321,7 +277,7 @@ export function FraudReport() {
               })}
             </div>
           ) : (
-            <div className="text-sm text-gray-500 p-8 text-center border border-dashed border-gray-300 rounded-lg">
+            <div className="text-sm text-gray-500 p-8 text-center border border-dashed border-gray-300 rounded-[20px]">
               AI Verification results will populate here once documents are fully processed.
             </div>
           )}
