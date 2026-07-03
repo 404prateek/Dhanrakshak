@@ -7,6 +7,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, UploadCloud, Clock, User, Brain, GitCompare, Play
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import RiskGauge from '../components/ui/RiskGauge';
 import { api, runMLAnalysis as runML, runCrossDocAnalysis } from '../services/api';
 import { cn, formatDate } from '../utils/helpers';
 import { MLResultCard } from '../components/MLResultCard';
@@ -290,8 +291,8 @@ export function Investigation() {
 
   if (!caseId) {
     return (
-      <div className="flex h-[calc(100vh-6rem)] items-center justify-center -m-6 bg-slate-50">
-        <div className="text-center max-w-md p-8 bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex h-[calc(100vh-6rem)] items-center justify-center bg-slate-50 p-6">
+        <div className="text-center max-w-md p-8 bg-white rounded-[24px] border border-slate-200 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
           <ShieldAlert className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900 mb-2">No Case Selected</h2>
           <p className="text-slate-500 mb-6">Please select a case from the Cases menu to view the investigation workspace.</p>
@@ -305,12 +306,12 @@ export function Investigation() {
 
   if (loadingCases || loadingNotes || loadingReports) {
     return (
-      <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 p-6 space-y-6 bg-slate-50 overflow-hidden">
-        <div className="h-28 bg-slate-200 animate-pulse rounded-xl w-full border border-slate-200"></div>
+      <div className="flex flex-col h-[calc(100vh-6rem)] p-6 space-y-6 bg-slate-50 overflow-hidden">
+        <div className="h-28 bg-slate-200 animate-pulse rounded-[24px] w-full border border-slate-200"></div>
         <div className="flex flex-1 space-x-6 overflow-hidden">
-          <div className="w-1/4 h-full bg-slate-200 animate-pulse rounded-xl border border-slate-200"></div>
-          <div className="w-1/2 h-full bg-slate-200 animate-pulse rounded-xl border border-slate-200"></div>
-          <div className="w-1/4 h-full bg-slate-200 animate-pulse rounded-xl border border-slate-200"></div>
+          <div className="w-1/4 h-full bg-slate-200 animate-pulse rounded-[24px] border border-slate-200"></div>
+          <div className="w-1/2 h-full bg-slate-200 animate-pulse rounded-[24px] border border-slate-200"></div>
+          <div className="w-1/4 h-full bg-slate-200 animate-pulse rounded-[24px] border border-slate-200"></div>
         </div>
       </div>
     );
@@ -321,403 +322,373 @@ export function Investigation() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] -m-6 bg-slate-100">
-      {/* Top Header Bar */}
-      <div className="bg-white border-b border-slate-200 shadow-sm z-10">
-        <div className="px-6 py-2 flex justify-between items-center border-b border-slate-100">
-          <div className="flex items-center space-x-4">
+    <div className="flex flex-col min-h-[calc(100vh-6rem)] bg-[var(--bg,#F8FAFC)]">
+      <div className="px-6 py-6 max-w-[1440px] mx-auto w-full space-y-6">
+        <div className="bg-white border border-slate-200 rounded-[24px] shadow-sm overflow-hidden">
+          <div className="p-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] items-start">
             <div>
-              <h1 className="text-lg font-bold text-slate-900">Investigation Workspace</h1>
-              <p className="text-xs text-slate-500">CASE-{currentCase.id} • {currentCase.applicant_name}</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500 mb-2">Investigation Workspace</p>
+              <h1 className="text-2xl font-semibold text-slate-900">Case {currentCase.id} review</h1>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">Review documents, analyze risk, and record findings in a streamlined case summary.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
+              <Button variant="secondary" icon={Printer} onClick={() => navigate(`/fraud-reports/${caseId}`)}>View Report</Button>
+              <Button variant="danger" onClick={handleFlagFraud} disabled={updateStatusMutation.isPending}>Flag Fraud</Button>
+              <Button variant="primary" onClick={handleApprove} disabled={updateStatusMutation.isPending}>Approve</Button>
             </div>
           </div>
-          <div className="flex space-x-2">
-            <Button variant="secondary" icon={Printer} onClick={() => navigate(`/fraud-reports/${caseId}`)}>View Report</Button>
-            <Button variant="danger" onClick={handleFlagFraud} disabled={updateStatusMutation.isPending}>Flag as Fraud</Button>
-            <Button variant="primary" onClick={handleApprove} disabled={updateStatusMutation.isPending}>Approve</Button>
-          </div>
-        </div>
-        
-        {/* Case Summary Card */}
-        <div className="px-6 py-2 grid grid-cols-6 gap-4 text-xs">
-          <div>
-            <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Case Reference</p>
-            <p className="font-bold text-slate-900">CASE-{currentCase.id}</p>
-          </div>
-          <div>
-            <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Applicant</p>
-            <p className="font-medium text-slate-900 flex items-center"><User className="w-3.5 h-3.5 mr-1 text-slate-400"/>{currentCase.applicant_name}</p>
-          </div>
-          <div className="col-span-2">
-            <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Property Address</p>
-            <p className="font-medium text-slate-900 truncate" title={currentCase.property_address}>{currentCase.property_address}</p>
-          </div>
-          <div>
-            <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Status & Risk</p>
-            <div className="flex items-center space-x-2 mt-0.5">
-              <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold uppercase", currentCase.status === 'Open' ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700")}>{currentCase.status}</span>
-              <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold flex items-center", currentCase.risk_score > 75 ? "bg-red-100 text-red-700" : currentCase.risk_score > 40 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>
-                <ShieldAlert className="w-3 h-3 mr-1" />{currentCase.risk_score}
-              </span>
-            </div>
-          </div>
-          <div>
-            <p className="text-slate-400 font-medium mb-1 text-xs uppercase tracking-wider">Created Date</p>
-            <p className="font-medium text-slate-900 flex items-center"><Clock className="w-3.5 h-3.5 mr-1 text-slate-400"/>{formatDate(currentCase.created_at)}</p>
-          </div>
-        </div>
-      </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Column: Document List & Upload */}
-        {activeTab === 'document' && (
-          <div className="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300">
+          <div className="border-t border-slate-200 bg-slate-50 p-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Applicant</p>
+              <p className="mt-2 font-semibold text-slate-900">{currentCase.applicant_name}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Address</p>
+              <p className="mt-2 font-semibold text-slate-900 truncate" title={currentCase.property_address}>{currentCase.property_address}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Status</p>
+              <span className={cn("inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]", currentCase.status === 'Open' ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700")}>{currentCase.status}</span>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Risk Score</p>
+              <span className={cn("inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]", currentCase.risk_score > 75 ? "bg-red-100 text-red-700" : currentCase.risk_score > 40 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>{currentCase.risk_score}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+          <aside className="w-full bg-white border border-[var(--card-border,#E5E7EB)] rounded-[18px] overflow-hidden shadow-sm flex flex-col">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-
-            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Documents</h2>
-            <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full font-medium">{documents.length}</span>
-          </div>
-          
-          {/* Upload Zone */}
-          <div 
-            className={cn(
-              "m-3 border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer",
-              isDragging ? "border-blue-500 bg-blue-50" : "border-slate-300 hover:border-slate-400"
-            )}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
-            <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-2" />
-            <p className="text-xs font-medium text-slate-700">Click or drag document here</p>
-            {uploadMutation.isPending && (
-              <p className="text-xs text-blue-600 mt-2 flex items-center justify-center">
-                <span className="animate-spin h-3 w-3 mr-1 border-b-2 border-blue-600 rounded-full"></span>
-                Uploading...
-              </p>
-            )}
-          </div>
-
-          {/* Document List */}
-          <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
-            {documents.length === 0 ? (
-              <div className="text-xs text-slate-400 text-center py-4">No documents uploaded yet.</div>
-            ) : (
-              documents.map(doc => (
-                <div 
-                  key={doc.id}
-                  onClick={() => handleDocClick(doc)}
-                  className={cn(
-                    "p-3 rounded-md cursor-pointer border transition-colors",
-                    activeDoc?.id === doc.id 
-                      ? "bg-blue-50 border-blue-200" 
-                      : "bg-white border-transparent hover:bg-slate-50 hover:border-slate-200"
-                  )}
-                >
-                  <div className="flex items-start">
-                    <FileText className={cn("w-8 h-8 mr-3 flex-shrink-0 transition-colors", activeDoc?.id === doc.id ? "text-blue-600" : "text-slate-400")} />
-                    <div className="overflow-hidden flex-1">
-                      <p className={cn("text-sm font-semibold truncate transition-colors", activeDoc?.id === doc.id ? "text-blue-900" : "text-slate-700")} title={doc.file_name}>
-                        {doc.file_name}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5 flex justify-between items-center">
-                        <span>{doc.file_type}</span>
-                        <span className="text-[10px]">{formatDate(doc.upload_date)}</span>
-                      </p>
-                      {/* FIX: was doc.user_id, now using doc.uploaded_by (correct field from backend) */}
-                      <p className="text-[10px] text-slate-400 mt-1 flex items-center"><User className="w-3 h-3 mr-1"/> Officer ID: {doc.uploaded_by ?? '—'}</p>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2 mt-2 pt-2 border-t border-slate-100">
-                    <a 
-                      href={getDocumentUrl(doc.file_path)} 
-                      download={doc.file_name}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex-1 flex items-center justify-center text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 py-1.5 rounded"
-                    >
-                      <Download className="w-3.5 h-3.5 mr-1" /> Download
-                    </a>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-        )}
-
-        {/* Center Column: Document Viewer + ML Results */}
-        <div className="flex-1 flex flex-col bg-slate-100 relative overflow-hidden">
-          
-          {/* Tab Bar & Toolbar */}
-          <div className="sticky top-0 z-10 flex flex-col bg-white border-b border-slate-200">
-            <div className="flex justify-between items-center px-4 py-2 bg-slate-50 border-b border-slate-200">
-              <div className="flex space-x-1">
-                <button
-                  onClick={() => setActiveTab('document')}
-                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors", activeTab === 'document' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
-                >
-                  Document Viewer
-                </button>
-                <button
-                  onClick={() => setActiveTab('analysis')}
-                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors flex items-center space-x-2", activeTab === 'analysis' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
-                >
-                  <span>AI Analysis</span>
-                  {analysisResult && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
-                </button>
-                <button
-                  onClick={() => setActiveTab('cross-doc')}
-                  className={cn("px-4 py-1.5 text-sm font-semibold rounded-md transition-colors", activeTab === 'cross-doc' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
-                >
-                  Cross-Document Analysis
-                </button>
-              </div>
-
-              <div className="flex items-center space-x-3">
-                <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
-                  <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomOut className="w-4 h-4" /></button>
-                  <span className="text-xs font-medium px-2 text-slate-700">100%</span>
-                  <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomIn className="w-4 h-4" /></button>
-                </div>
-                {/* Explicit "Run AI Analysis" button */}
-                <button
-                  onClick={() => runMLAnalysis(activeDoc)}
-                  disabled={isAnalyzing || !activeDoc}
-                  className={cn(
-                    "flex items-center space-x-2 text-sm font-semibold px-4 py-1.5 rounded-lg transition-all",
-                    isAnalyzing 
-                      ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                      : activeDoc 
-                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                  )}
-                >
-                  {isAnalyzing ? (
-                    <><span className="animate-spin h-4 w-4 border-b-2 border-slate-500 rounded-full inline-block"></span><span>Analyzing...</span></>
-                  ) : (
-                    <><Brain className="w-4 h-4" /><span>Run AI Analysis</span></>
-                  )}
-                </button>
-                {activeDoc && (
-                  <a href={getDocumentUrl(activeDoc.file_path)} download={activeDoc.file_name} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 bg-white border border-slate-200 shadow-sm">
-                    <Download className="w-4 h-4" />
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-100">
-            {/* Tab 1: Document Viewer */}
-            {activeTab === 'document' && (
-              <div className="h-full flex flex-col">
-                {activeDoc ? (
-                  <div className="bg-white shadow-sm border border-slate-200 w-full flex-1 flex flex-col relative overflow-hidden rounded-md h-full">
-                    {activeDoc.file_type.toLowerCase().includes('pdf') || activeDoc.file_name.toLowerCase().endsWith('.pdf') ? (
-                      <iframe src={getDocumentUrl(activeDoc.file_path)} className="w-full h-full border-none min-h-full" title="PDF Viewer" />
-                    ) : activeDoc.file_type.toLowerCase().includes('image') || activeDoc.file_name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                      <div className="w-full h-full flex items-center justify-center bg-slate-100 overflow-auto min-h-full">
-                        <img src={getDocumentUrl(activeDoc.file_path)} alt={activeDoc.file_name} className="max-w-full max-h-full object-contain" />
-                      </div>
-                    ) : (
-                      <div className="text-center text-slate-400 m-auto py-16">
-                        <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                        <p>Preview not available for this file type.</p>
-                        <a href={getDocumentUrl(activeDoc.file_path)} download className="text-blue-600 hover:underline mt-2 inline-block">Download instead</a>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-white border border-dashed border-slate-300 rounded-xl">Select a document to view</div>
-                )}
-              </div>
-            )}
-
-            {/* Tab 2: AI Analysis Report — full width, scrollable */}
-            {activeTab === 'analysis' && (
-              <div className="w-full">
-                {isAnalyzing && (
-                  <div className="bg-white border border-gray-200 rounded-xl p-12 flex flex-col items-center justify-center space-y-4 shadow-sm">
-                    <Brain className="w-10 h-10 animate-pulse text-blue-600" />
-                    <span className="text-lg font-semibold text-gray-800">Running deep AI fraud analysis...</span>
-                    <p className="text-sm text-gray-500">Forensic · OCR · Behavioral · Trust Engine · AI Report</p>
-                    <span className="flex space-x-2">
-                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
-                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></span>
-                      <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></span>
-                    </span>
-                  </div>
-                )}
-                {!isAnalyzing && analysisResult && (
-                  <MLResultCard result={analysisResult} />
-                )}
-                {!isAnalyzing && !analysisResult && activeDoc && (
-                  <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-xl border border-dashed border-slate-300 shadow-sm">
-                    <div className="text-4xl mb-3">🔍</div>
-                    <p className="text-lg font-medium text-slate-700">No analysis yet</p>
-                    <p className="text-sm mt-1 mb-4">Click <span className="text-blue-600 font-bold">Run AI Analysis</span> to analyze the selected document</p>
-                    <Button variant="primary" onClick={() => runMLAnalysis(activeDoc)}>
-                      Run AI Analysis Now
-                    </Button>
-                  </div>
-                )}
-                {!isAnalyzing && !activeDoc && (
-                  <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-xl border border-dashed border-slate-300 shadow-sm">
-                    <div className="text-4xl mb-3">📄</div>
-                    <p className="text-lg font-medium text-slate-700">No document selected</p>
-                    <p className="text-sm mt-1">Select a document from the left panel first</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab 3: Cross-Document Analysis */}
-            {activeTab === 'cross-doc' && (
-              <div className="max-w-4xl mx-auto w-full">
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-8">
-                  <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-                    <GitCompare className="w-5 h-5 mr-3 text-blue-600" />
-                    Cross-Document Pair Analysis
-                  </h2>
-                  <div className="flex items-center space-x-6">
-                    <div className="flex-1">
-                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Primary Document</p>
-                      <select
-                        className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
-                        value={pairPrimary?.id ?? ''}
-                        onChange={e => setPairPrimary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
-                      >
-                        <option value="">— Select document —</option>
-                        {documents.map(d => (
-                          <option key={d.id} value={d.id}>{d.file_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <GitCompare className="w-8 h-8 text-blue-400 flex-shrink-0 mt-6" />
-                    <div className="flex-1">
-                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Secondary Document</p>
-                      <select
-                        className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
-                        value={pairSecondary?.id ?? ''}
-                        onChange={e => setPairSecondary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
-                      >
-                        <option value="">— Select document —</option>
-                        {documents.map(d => (
-                          <option key={d.id} value={d.id}>{d.file_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-8 flex justify-center border-t border-gray-100 pt-8">
-                    <button
-                      onClick={runPairAnalysis}
-                      disabled={isPairAnalyzing || !pairPrimary || !pairSecondary}
-                      className="flex items-center space-x-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold px-8 py-3 rounded-lg transition-colors shadow-sm"
-                    >
-                      {isPairAnalyzing ? (
-                        <><span className="animate-spin h-5 w-5 border-b-2 border-white rounded-full inline-block"></span><span>Analyzing Pair...</span></>
-                      ) : (
-                        <><Play className="w-5 h-5" /><span>Run Pair Analysis</span></>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {pairResult && (
-                  <div className="mt-8">
-                    <MLResultCard result={pairResult} />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Investigation Notes & Timeline */}
-        {activeTab === 'document' && (
-        <div className="w-64 bg-white border-l border-slate-200 flex flex-col flex-shrink-0 transition-all duration-300">
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Investigation Log</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-8 bg-slate-50/50">
-            
-            {/* Investigation Notes */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center">
-                  <FileText className="w-4 h-4 mr-1 text-slate-400" />
-                  Notes
-                </h3>
-                <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{notes.length}</span>
-              </div>
-              
-              <div className="mb-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
-                <textarea 
-                  className="w-full text-sm text-slate-700 bg-transparent border-none focus:ring-0 resize-none p-0 placeholder-slate-400 h-16"
-                  placeholder="Type a new investigation note..."
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                />
-                <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100">
-                  <span className="text-[10px] text-slate-400 font-medium">Shift + Enter for new line</span>
-                  <Button variant="primary" size="sm" onClick={handleSaveNote} disabled={createNoteMutation.isPending || !newNote.trim()}>
-                    {createNoteMutation.isPending ? 'Saving...' : 'Save Note'}
-                  </Button>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                {notes.length === 0 && (
-                  <p className="text-xs text-slate-400 text-center py-2">No notes yet.</p>
-                )}
-                {notes.map(note => (
-                  <div key={note.id} className="p-3 bg-white border border-slate-200 rounded-lg shadow-sm hover:border-slate-300 transition-colors">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center">
-                        <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold mr-2 uppercase">
-                          {note.user_id ? `U${note.user_id}` : 'DR'}
-                        </div>
-                        <span className="text-xs font-bold text-slate-700">Officer {note.user_id || 'System'}</span>
-                      </div>
-                      <span className="text-[10px] font-medium text-slate-400">{formatDate(note.created_at)}</span>
-                    </div>
-                    <p className="text-sm text-slate-600 leading-relaxed pl-7">{note.note}</p>
-                  </div>
-                ))}
-              </div>
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Documents</h2>
+              <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded-full font-medium">{documents.length}</span>
             </div>
 
-            {/* Investigation Timeline */}
-            <div>
-              <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center">
-                <Clock className="w-4 h-4 mr-1 text-slate-400" />
-                Timeline
-              </h3>
-              {timelineEvents.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-2">No events yet.</p>
-              ) : (
-                <div className="relative border-l-2 border-slate-200 ml-3 space-y-6 pb-2">
-                  {timelineEvents.map((evt, idx) => (
-                    <div key={idx} className="relative pl-6">
-                      <div className={cn("absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm", evt.color)}></div>
-                      <p className={cn("text-sm font-bold", 
-                        evt.type === 'STATUS_CHANGED' && evt.title === 'Fraud Confirmed' ? 'text-red-700' : 
-                        evt.type === 'STATUS_CHANGED' && evt.title === 'Case Approved' ? 'text-emerald-700' : 
-                        'text-slate-800'
-                      )}>{evt.title}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{formatDate(evt.date)}</p>
-                    </div>
-                  ))}
-                </div>
+            <div
+              className={cn(
+                "m-3 border-2 border-dashed rounded-[20px] p-4 text-center transition-colors cursor-pointer",
+                isDragging ? "border-blue-500 bg-blue-50" : "border-slate-300 hover:border-slate-400"
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
+              <UploadCloud className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+              <p className="text-xs font-medium text-slate-700">Click or drag document here</p>
+              {uploadMutation.isPending && (
+                <p className="text-xs text-blue-600 mt-2 flex items-center justify-center">
+                  <span className="animate-spin h-3 w-3 mr-1 border-b-2 border-blue-600 rounded-full"></span>
+                  Uploading...
+                </p>
               )}
             </div>
 
-          </div>
+            <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
+              {documents.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-4">No documents uploaded yet.</div>
+              ) : (
+                documents.map(doc => (
+                  <div
+                    key={doc.id}
+                    onClick={() => handleDocClick(doc)}
+                    className={cn(
+                      "p-3 rounded-[18px] cursor-pointer border transition-colors",
+                      activeDoc?.id === doc.id
+                        ? "bg-blue-50 border-blue-200"
+                        : "bg-white border-transparent hover:bg-slate-50 hover:border-slate-200"
+                    )}
+                  >
+                    <div className="flex items-start">
+                      <FileText className={cn("w-8 h-8 mr-3 flex-shrink-0 transition-colors", activeDoc?.id === doc.id ? "text-blue-600" : "text-slate-400")} />
+                      <div className="overflow-hidden flex-1">
+                        <p className={cn("text-sm font-semibold leading-5 line-clamp-2 transition-colors break-words", activeDoc?.id === doc.id ? "text-blue-900" : "text-slate-700")} title={doc.file_name}>
+                          {doc.file_name}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5 flex justify-between items-center">
+                          <span>{doc.file_type}</span>
+                          <span className="text-[10px]">{formatDate(doc.upload_date)}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1 flex items-center"><User className="w-3 h-3 mr-1" /> Officer ID: {doc.uploaded_by ?? '—'}</p>
+                      </div>
+                    </div>
+                    <div className="flex space-x-2 mt-2 pt-2 border-t border-slate-100">
+                      <a
+                        href={getDocumentUrl(doc.file_path)}
+                        download={doc.file_name}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 flex items-center justify-center text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 py-1.5 rounded"
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1" /> Download
+                      </a>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col bg-slate-100 relative overflow-hidden rounded-[18px] shadow-sm border border-slate-200 min-w-0">
+            <div className="sticky top-0 z-10 flex flex-col bg-white border-b border-slate-200">
+              <div className="flex flex-wrap justify-between items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 pr-1">
+                  <button
+                    onClick={() => setActiveTab('document')}
+                    className={cn("shrink-0 whitespace-nowrap px-4 py-1.5 text-sm font-semibold rounded-[18px] transition duration-200 ease-in-out", activeTab === 'document' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                  >
+                    Document Viewer
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('analysis')}
+                    className={cn("shrink-0 whitespace-nowrap px-4 py-1.5 text-sm font-semibold rounded-[18px] transition duration-200 ease-in-out flex items-center space-x-2", activeTab === 'analysis' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                  >
+                    <span>AI Analysis</span>
+                    {analysisResult && <span className="w-2 h-2 rounded-full bg-blue-500"></span>}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('cross-doc')}
+                    className={cn("shrink-0 whitespace-nowrap px-4 py-1.5 text-sm font-semibold rounded-[18px] transition duration-200 ease-in-out", activeTab === 'cross-doc' ? "bg-white text-blue-700 shadow-sm border border-slate-200" : "text-slate-600 hover:bg-slate-200")}
+                  >
+                    Cross-Document Analysis
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 justify-start md:justify-end">
+                  <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-[18px]">
+                    <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomOut className="w-4 h-4" /></button>
+                    <span className="text-xs font-medium px-2 text-slate-700">100%</span>
+                    <button className="p-1 hover:bg-white rounded text-slate-600"><ZoomIn className="w-4 h-4" /></button>
+                  </div>
+                  <button
+                    onClick={() => runMLAnalysis(activeDoc)}
+                    disabled={isAnalyzing || !activeDoc}
+                    className={cn(
+                      "flex items-center space-x-2 text-sm font-semibold px-4 py-1.5 rounded-[18px] transition-all",
+                      isAnalyzing
+                        ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                        : activeDoc
+                          ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                          : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    )}
+                  >
+                    {isAnalyzing ? (
+                      <><span className="animate-spin h-4 w-4 border-b-2 border-slate-500 rounded-full inline-block"></span><span>Analyzing...</span></>
+                    ) : (
+                      <><Brain className="w-4 h-4" /><span>Run AI Analysis</span></>
+                    )}
+                  </button>
+                  {activeDoc && (
+                    <a href={getDocumentUrl(activeDoc.file_path)} download={activeDoc.file_name} className="p-1.5 hover:bg-slate-100 rounded-[18px] text-slate-600 bg-white border border-slate-200 shadow-sm transition duration-200 ease-in-out">
+                      <Download className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-100">
+              {activeTab === 'document' && (
+                <div className="h-full flex flex-col">
+                  {activeDoc ? (
+                    <div className="bg-white shadow-sm border border-slate-200 w-full flex-1 flex flex-col relative overflow-hidden rounded-[24px] h-full">
+                      {activeDoc.file_type.toLowerCase().includes('pdf') || activeDoc.file_name.toLowerCase().endsWith('.pdf') ? (
+                        <iframe src={getDocumentUrl(activeDoc.file_path)} className="w-full h-full border-none min-h-full" title="PDF Viewer" />
+                      ) : activeDoc.file_type.toLowerCase().includes('image') || activeDoc.file_name.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                        <div className="w-full h-full flex items-center justify-center bg-slate-100 overflow-auto min-h-full">
+                          <img src={getDocumentUrl(activeDoc.file_path)} alt={activeDoc.file_name} className="max-w-full max-h-full object-contain" />
+                        </div>
+                      ) : (
+                        <div className="text-center text-slate-400 m-auto py-16">
+                          <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                          <p>Preview not available for this file type.</p>
+                          <a href={getDocumentUrl(activeDoc.file_path)} download className="text-blue-600 hover:underline mt-2 inline-block">Download instead</a>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-white border border-dashed border-slate-300 rounded-[24px]">Select a document to view</div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'analysis' && (
+                <div className="w-full">
+                  {isAnalyzing && (
+                    <div className="bg-white border border-gray-200 rounded-[24px] p-12 flex flex-col items-center justify-center space-y-4 shadow-sm transition duration-200 ease-in-out hover:shadow-lg">
+                      <Brain className="w-10 h-10 animate-pulse text-blue-600" />
+                      <span className="text-lg font-semibold text-gray-800">Running deep AI fraud analysis...</span>
+                      <p className="text-sm text-gray-500">Forensic · OCR · Behavioral · Trust Engine · AI Report</p>
+                      <span className="flex space-x-2">
+                        <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                        <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                        <span className="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                      </span>
+                    </div>
+                  )}
+                  {!isAnalyzing && analysisResult && <MLResultCard result={analysisResult} />}
+                  {!isAnalyzing && !analysisResult && activeDoc && (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-[24px] border border-dashed border-slate-300 shadow-sm">
+                      <div className="text-4xl mb-3">🔍</div>
+                      <p className="text-lg font-medium text-slate-700">No analysis yet</p>
+                      <p className="text-sm mt-1 mb-4">Click <span className="text-blue-600 font-bold">Run AI Analysis</span> to analyze the selected document</p>
+                      <Button variant="primary" onClick={() => runMLAnalysis(activeDoc)}>
+                        Run AI Analysis Now
+                      </Button>
+                    </div>
+                  )}
+                  {!isAnalyzing && !activeDoc && (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-500 text-center bg-white rounded-[24px] border border-dashed border-slate-300 shadow-sm">
+                      <div className="text-4xl mb-3">📄</div>
+                      <p className="text-lg font-medium text-slate-700">No document selected</p>
+                      <p className="text-sm mt-1">Select a document from the left panel first</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'cross-doc' && (
+                <div className="max-w-4xl mx-auto w-full">
+                  <div className="bg-white border border-gray-200 rounded-[24px] shadow-sm p-8 transition duration-200 ease-in-out hover:shadow-lg">
+                    <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
+                      <GitCompare className="w-5 h-5 mr-3 text-blue-600" />
+                      Cross-Document Pair Analysis
+                    </h2>
+                    <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Primary Document</p>
+                        <select
+                          className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-[18px] px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
+                          value={pairPrimary?.id ?? ''}
+                          onChange={e => setPairPrimary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
+                        >
+                          <option value="">— Select document —</option>
+                          {documents.map(d => (
+                            <option key={d.id} value={d.id}>{d.file_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <GitCompare className="w-8 h-8 text-blue-400 flex-shrink-0 mt-4 lg:mt-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Secondary Document</p>
+                        <select
+                          className="w-full bg-white border border-gray-300 text-gray-800 text-sm rounded-[18px] px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
+                          value={pairSecondary?.id ?? ''}
+                          onChange={e => setPairSecondary(documents.find(d => d.id === parseInt(e.target.value)) || null)}
+                        >
+                          <option value="">— Select document —</option>
+                          {documents.map(d => (
+                            <option key={d.id} value={d.id}>{d.file_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="mt-8 flex justify-center border-t border-gray-100 pt-8">
+                      <button
+                        onClick={runPairAnalysis}
+                        disabled={isPairAnalyzing || !pairPrimary || !pairSecondary}
+                        className="flex items-center space-x-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold px-8 py-3 rounded-[18px] transition-colors shadow-sm"
+                      >
+                        {isPairAnalyzing ? (
+                          <><span className="animate-spin h-5 w-5 border-b-2 border-white rounded-full inline-block"></span><span>Analyzing Pair...</span></>
+                        ) : (
+                          <><Play className="w-5 h-5" /><span>Run Pair Analysis</span></>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {pairResult && (
+                    <div className="mt-8">
+                      <MLResultCard result={pairResult} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
+
+          <aside className="w-full bg-white border border-[var(--card-border,#E5E7EB)] rounded-[18px] overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-slate-200 bg-slate-50">
+              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Investigation Log</h2>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="max-w-xs">
+                <RiskGauge score={currentCase.risk_score} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center">
+                    <FileText className="w-4 h-4 mr-1 text-slate-400" />
+                    Notes
+                  </h3>
+                  <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{notes.length}</span>
+                </div>
+
+                <div className="mb-4 bg-white p-3 rounded-[18px] border border-slate-200 shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                  <textarea
+                    className="w-full text-sm text-slate-700 bg-transparent border-none focus:ring-0 resize-none p-0 placeholder-slate-400 h-16"
+                    placeholder="Type a new investigation note..."
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                  />
+                  <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-100">
+                    <span className="text-[10px] text-slate-400 font-medium">Shift + Enter for new line</span>
+                    <Button variant="primary" size="sm" onClick={handleSaveNote} disabled={createNoteMutation.isPending || !newNote.trim()}>
+                      {createNoteMutation.isPending ? 'Saving...' : 'Save Note'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {notes.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No notes yet.</p>}
+                  {notes.map(note => (
+                    <div key={note.id} className="p-3 bg-white border border-slate-200 rounded-[18px] shadow-sm hover:border-slate-300 transition-colors">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center">
+                          <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold mr-2 uppercase">
+                            {note.user_id ? `U${note.user_id}` : 'DR'}
+                          </div>
+                          <span className="text-xs font-bold text-slate-700">Officer {note.user_id || 'System'}</span>
+                        </div>
+                        <span className="text-[10px] font-medium text-slate-400">{formatDate(note.created_at)}</span>
+                      </div>
+                      <p className="text-sm text-slate-600 leading-relaxed pl-7">{note.note}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center">
+                  <Clock className="w-4 h-4 mr-1 text-slate-400" />
+                  Timeline
+                </h3>
+                {timelineEvents.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-2">No events yet.</p>
+                ) : (
+                  <div className="relative border-l-2 border-slate-200 ml-3 space-y-6 pb-2">
+                    {timelineEvents.map((evt, idx) => (
+                      <div key={idx} className="relative pl-6">
+                        <div className={cn("absolute -left-[9px] top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm", evt.color)}></div>
+                        <p className={cn(
+                          "text-sm font-bold",
+                          evt.type === 'STATUS_CHANGED' && evt.title === 'Fraud Confirmed' ? 'text-red-700' :
+                          evt.type === 'STATUS_CHANGED' && evt.title === 'Case Approved' ? 'text-emerald-700' :
+                          'text-slate-800'
+                        )}>{evt.title}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{formatDate(evt.date)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
         </div>
-        )}
       </div>
     </div>
   );

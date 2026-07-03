@@ -53,11 +53,11 @@ function NewCaseModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+      <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
           <h2 className="text-lg font-bold text-slate-900">New Investigation Case</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors text-slate-500">
+          <button onClick={onClose} className="p-1.5 rounded-[18px] hover:bg-slate-200 transition-colors text-slate-500">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -215,7 +215,7 @@ export function CaseManagement() {
         </div>
 
         <div className="enterprise-card flex-1 flex flex-col min-h-0">
-          <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap gap-4 items-center justify-between">
+          <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-wrap gap-4 items-center justify-between rounded-t-[24px]">
             <div className="w-full sm:max-w-xs">
               <Input 
                 icon={Search} 
@@ -251,7 +251,7 @@ export function CaseManagement() {
             </div>
           </div>
           
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto rounded-b-[24px]">
             {isLoading ? (
                <div className="flex h-full items-center justify-center">
                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>

@@ -1,10 +1,12 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { UploadCloud, FileText, CheckCircle2, XCircle, Plus } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import FileUploader from '../components/ui/FileUploader';
 import { api } from '../services/api';
+import backgroundUploader from '../services/backgroundUploader';
 import { cn } from '../utils/helpers';
 
 export function Ingest() {
@@ -21,21 +23,46 @@ export function Ingest() {
   });
   
   const [files, setFiles] = useState([]);
+  const [backgroundMode, setBackgroundMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [createdCaseId, setCreatedCaseId] = useState(null);
+  const uploadControllers = useRef({});
 
   const createMutation = useMutation({
     mutationFn: (data) => api.createCase(data),
     onSuccess: async (newCase) => {
-      // Upload all files to this new case
+      setCreatedCaseId(newCase.id);
+      // If backgroundMode enabled, start background uploads and navigate immediately
+      if (files.length > 0 && backgroundMode) {
+        // start background uploads (non-blocking)
+        backgroundUploader.startUploads(newCase.id, files);
+        toast.success('Case created. Documents uploading in background.');
+        queryClient.invalidateQueries({ queryKey: ['cases'] });
+        navigate('/cases');
+        return;
+      }
+
+      // Upload all files to this new case with progress (synchronous)
       if (files.length > 0) {
         setIsUploading(true);
         let successCount = 0;
         for (const fileObj of files) {
           try {
-            await api.uploadDocument(newCase.id, fileObj.file);
+            // create abort controller for this file
+            const controller = new AbortController();
+            uploadControllers.current[fileObj.id] = controller;
+            setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, uploading: true, error: false } : f));
+            await api.uploadDocument(newCase.id, fileObj.file, (pct) => {
+              setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, progress: pct } : f));
+            }, controller.signal);
+            // mark uploaded
+            setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, uploaded: true, uploading: false, progress: 100 } : f));
+            delete uploadControllers.current[fileObj.id];
             successCount++;
           } catch (err) {
+            setFiles(prev => prev.map(f => f.id === fileObj.id ? { ...f, error: true, uploading: false } : f));
+            delete uploadControllers.current[fileObj.id];
             toast.error(`Failed to upload ${fileObj.file.name}`);
           }
         }
@@ -47,9 +74,12 @@ export function Ingest() {
         }
       } else {
         toast.success('Case created successfully without documents.');
+        queryClient.invalidateQueries({ queryKey: ['cases'] });
+        navigate('/cases');
+        return;
       }
       queryClient.invalidateQueries({ queryKey: ['cases'] });
-      navigate(`/investigation/${newCase.id}`);
+      navigate(`/fraud-reports/${newCase.id}`);
     },
     onError: (err) => {
       toast.error('Failed to create case', {
@@ -79,7 +109,10 @@ export function Ingest() {
         id: Math.random().toString(36).substr(2, 9),
         file: f,
         name: f.name,
-        size: (f.size / 1024 / 1024).toFixed(2) + ' MB'
+        size: (f.size / 1024 / 1024).toFixed(2) + ' MB',
+        progress: 0,
+        uploaded: false,
+        error: false,
       }));
       setFiles(prev => [...prev, ...newFiles]);
     }
@@ -87,13 +120,16 @@ export function Ingest() {
 
   const handleFileSelect = (e) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFiles = Array.from(e.target.files).map(f => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file: f,
-        name: f.name,
-        size: (f.size / 1024 / 1024).toFixed(2) + ' MB'
-      }));
-      setFiles(prev => [...prev, ...newFiles]);
+        const newFiles = Array.from(e.target.files).map(f => ({
+          id: Math.random().toString(36).substr(2, 9),
+          file: f,
+          name: f.name,
+          size: (f.size / 1024 / 1024).toFixed(2) + ' MB',
+          progress: 0,
+          uploaded: false,
+          error: false,
+        }));
+        setFiles(prev => [...prev, ...newFiles]);
     }
   };
 
@@ -110,6 +146,38 @@ export function Ingest() {
     createMutation.mutate(form);
   };
 
+  const cancelUpload = (fileId) => {
+    const controller = uploadControllers.current[fileId];
+    if (controller) {
+      try { controller.abort(); } catch (e) { /* ignore */ }
+      delete uploadControllers.current[fileId];
+      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, uploading: false, error: true } : f));
+    } else {
+      // not started or queued — just remove
+      removeFile(fileId);
+    }
+  };
+
+  const retryUpload = async (fileId) => {
+    const fileObj = files.find(f => f.id === fileId);
+    if (!fileObj || !createdCaseId) return;
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, uploading: true, error: false, progress: 0 } : f));
+    const controller = new AbortController();
+    uploadControllers.current[fileId] = controller;
+    try {
+      await api.uploadDocument(createdCaseId, fileObj.file, (pct) => {
+        setFiles(prev => prev.map(f => f.id === fileId ? { ...f, progress: pct } : f));
+      }, controller.signal);
+      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, uploaded: true, uploading: false, progress: 100 } : f));
+      delete uploadControllers.current[fileId];
+      toast.success(`Uploaded ${fileObj.name}`);
+    } catch (err) {
+      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, error: true, uploading: false } : f));
+      delete uploadControllers.current[fileId];
+      toast.error(`Retry failed for ${fileObj.name}`);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
@@ -117,7 +185,7 @@ export function Ingest() {
         <p className="mt-1 text-sm text-slate-500">Create a new case and upload documents for AI analysis.</p>
       </div>
 
-      <div className="bg-white shadow-lg border border-slate-200 rounded-xl overflow-hidden">
+      <div className="enterprise-card overflow-hidden">
         <form onSubmit={handleSubmit}>
           <div className="p-8 space-y-8">
             
@@ -127,7 +195,7 @@ export function Ingest() {
                 <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs mr-2">1</span>
                 Case Details
               </h2>
-              <div className="grid grid-cols-2 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200">
+              <div className="grid grid-cols-2 gap-6 bg-slate-50 p-6 rounded-[24px] border border-slate-200">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
                     Case Reference <span className="text-red-500">*</span>
@@ -177,44 +245,22 @@ export function Ingest() {
                 Upload Documents
               </h2>
               
-              <div 
-                className={cn(
-                  "border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer",
-                  isDragging ? "border-blue-500 bg-blue-50" : "border-slate-300 hover:border-slate-400 bg-slate-50"
-                )}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
-                <UploadCloud className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-                <h3 className="text-lg font-bold text-slate-700 mb-1">Drag & Drop files here</h3>
-                <p className="text-sm text-slate-500">or click to browse from your computer</p>
-                <p className="text-xs text-slate-400 mt-4">Supported formats: PDF, JPG, PNG (Max 50MB per file)</p>
+              <FileUploader
+                files={files}
+                fileInputRef={fileInputRef}
+                isDragging={isDragging}
+                handleDragOver={handleDragOver}
+                handleDragLeave={handleDragLeave}
+                handleDrop={handleDrop}
+                handleFileSelect={handleFileSelect}
+                removeFile={removeFile}
+                onCancel={cancelUpload}
+                onRetry={retryUpload}
+              />
+              <div className="mt-3 flex items-center space-x-3">
+                <input id="bgUploads" type="checkbox" className="h-4 w-4" checked={backgroundMode} onChange={(e) => setBackgroundMode(e.target.checked)} />
+                <label htmlFor="bgUploads" className="text-sm text-slate-600">Enable background uploads (start and navigate immediately)</label>
               </div>
-
-              {files.length > 0 && (
-                <div className="mt-6 space-y-2">
-                  <h3 className="text-sm font-bold text-slate-700">Selected Files ({files.length})</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {files.map(f => (
-                      <div key={f.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                        <div className="flex items-center space-x-3 overflow-hidden">
-                          <FileText className="w-6 h-6 text-blue-500 flex-shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate" title={f.name}>{f.name}</p>
-                            <p className="text-xs text-slate-500">{f.size}</p>
-                          </div>
-                        </div>
-                        <button type="button" onClick={() => removeFile(f.id)} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
-                          <XCircle className="w-5 h-5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
             
           </div>
