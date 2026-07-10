@@ -168,6 +168,7 @@ export const api = {
       secondary_type: secondaryType,
       behavior_data: behaviorData,
       rule_base_score: ruleBaseScore,
+      income_itr: incomeItr,                  // was missing — now included
       income_bank_monthly: incomeBankMonthly,
     });
     return response.data;
@@ -177,10 +178,14 @@ export const api = {
 export const runMLAnalysis = async (caseId, filePaths, behaviorData = {}) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 seconds timeout
+  const token = localStorage.getItem('dhanrakshak_token') || '';
   try {
     const response = await fetch('/api/ml/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         case_id: String(caseId),
         file_paths: filePaths,
@@ -204,10 +209,14 @@ export const runMLAnalysis = async (caseId, filePaths, behaviorData = {}) => {
 export const runCrossDocAnalysis = async (caseId, primaryPath, secondaryPath) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300000);
+  const token = localStorage.getItem('dhanrakshak_token') || '';
   try {
     const response = await fetch('/api/ml/analyze-pair', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         case_id: String(caseId),
         primary_path: primaryPath,

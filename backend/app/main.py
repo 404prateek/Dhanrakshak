@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
     # Create tables if they don't exist (idempotent)
     Base.metadata.create_all(bind=engine)
     os.makedirs(settings.STORAGE_DIR, exist_ok=True)
+    os.makedirs(_STORAGE_PATH, exist_ok=True)  # ensure static-files dir is always present
     logger.info("DhanRakshak API started — storage: %s", settings.STORAGE_DIR)
     yield
     logger.info("DhanRakshak API shutting down")
@@ -72,9 +73,11 @@ app.include_router(audit.router,                prefix=f"{_V1}/audit",  tags=["a
 app.include_router(ml_analyze.router,           prefix="/api/ml",       tags=["ml_pipeline"])
 
 # ── Static storage ────────────────────────────────────────────────────────────
-import os
-storage_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "storage"))
-app.mount("/storage", StaticFiles(directory=storage_path), name="storage")
+# Resolve once at module level and pre-create the directory so that
+# StaticFiles() never crashes on a fresh deploy before lifespan runs.
+_STORAGE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "storage"))
+os.makedirs(_STORAGE_PATH, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=_STORAGE_PATH), name="storage")
 
 @app.get("/", tags=["health"])
 def health_check():

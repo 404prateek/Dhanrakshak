@@ -11,6 +11,7 @@ import RiskGauge from '../components/ui/RiskGauge';
 import { api, runMLAnalysis as runML, runCrossDocAnalysis } from '../services/api';
 import { cn, formatDate } from '../utils/helpers';
 import { MLResultCard } from '../components/MLResultCard';
+import { CrossDocComparisonCard } from '../components/CrossDocComparisonCard';
 
 export function Investigation() {
   const { id } = useParams();
@@ -59,7 +60,8 @@ export function Investigation() {
           risk_score: data.final_score_pct ?? data.risk_score ?? 0,
           fraud_category: data.risk_level === 'LOW' ? 'Document AI Verified' : 'AI Analysis Findings',
           findings: findings || 'AI Analysis completed. No major fraud indicators found.',
-          recommendation: data.recommendation || 'APPROVE'
+          recommendation: data.recommendation || 'APPROVE',
+          ml_result: JSON.stringify(data)
         });
         queryClient.invalidateQueries(['reports', caseId]);
       }
@@ -94,7 +96,8 @@ export function Investigation() {
           risk_score: data.final_score_pct ?? data.risk_score ?? 0,
           fraud_category: 'Cross-Document Analysis',
           findings: data.llm_report || 'Cross-document analysis completed.',
-          recommendation: data.recommendation || 'MANUAL_REVIEW'
+          recommendation: data.recommendation || 'MANUAL_REVIEW',
+          ml_result: JSON.stringify(data)
         });
         queryClient.invalidateQueries(['reports', caseId]);
       }
@@ -358,7 +361,7 @@ export function Investigation() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+        <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)_280px]">
           <aside className="w-full bg-white border border-[var(--card-border,#E5E7EB)] rounded-[18px] overflow-hidden shadow-sm flex flex-col">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
               <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Documents</h2>
@@ -602,7 +605,7 @@ export function Investigation() {
 
                   {pairResult && (
                     <div className="mt-8">
-                      <MLResultCard result={pairResult} />
+                      <CrossDocComparisonCard result={pairResult} type1={pairPrimary.file_name} type2={pairSecondary.file_name} />
                     </div>
                   )}
                 </div>

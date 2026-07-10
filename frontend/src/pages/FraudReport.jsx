@@ -102,9 +102,13 @@ export function FraudReport() {
   // FIX 4: Read the right score field — backend sends final_score_pct (0-100)
   // currentCase.risk_score is always 0 in DB until manually updated
   // The latest ML report has the real score in ml_result metadata
-  const mlResult = latestReport?.ml_result || {};
+  const mlResult = (typeof latestReport?.ml_result === 'string'
+    ? (() => { try { return JSON.parse(latestReport.ml_result); } catch { return {}; } })()
+    : latestReport?.ml_result) || {};
+
   const displayScore = Math.round(
-    mlResult.final_score_pct
+    latestReport.risk_score
+    ?? mlResult.final_score_pct
     ?? mlResult.risk_score
     ?? ((mlResult.final_score ?? 0) * 100)
     ?? currentCase.risk_score
@@ -232,7 +236,7 @@ export function FraudReport() {
 
                 const docType   = ml.doc_type || report.fraud_category || 'Document';
                 const docScore  = ml.final_score_pct ?? ml.risk_score ?? report.risk_score ?? 0;
-                const integrity = ml.trufor_score ?? null;
+                const integrity = ml.forensic_score !== undefined ? (1 - ml.forensic_score) : null;
                 const conflicts = ml.conflicts || [];
                 // One-line forensic summary — never repeat the full LLM text
                 const forensicLine = integrity !== null

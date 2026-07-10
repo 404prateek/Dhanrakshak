@@ -13,6 +13,7 @@ import { api } from '../services/api';
 // ── New Case Modal ────────────────────────────────────────────────
 function NewCaseModal({ onClose }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     case_ref: '',
     applicant_name: '',
@@ -23,10 +24,11 @@ function NewCaseModal({ onClose }) {
 
   const createMutation = useMutation({
     mutationFn: (data) => api.createCase(data),
-    onSuccess: () => {
+    onSuccess: (newCase) => {
       toast.success('Case created successfully');
       queryClient.invalidateQueries({ queryKey: ['cases'] });
       onClose();
+      navigate(`/investigation/${newCase.id}`);
     },
     onError: (err) => {
       toast.error('Failed to create case', {

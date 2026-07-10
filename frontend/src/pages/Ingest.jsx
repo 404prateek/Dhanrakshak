@@ -39,7 +39,7 @@ export function Ingest() {
         backgroundUploader.startUploads(newCase.id, files);
         toast.success('Case created. Documents uploading in background.');
         queryClient.invalidateQueries({ queryKey: ['cases'] });
-        navigate('/cases');
+        navigate(`/investigation/${newCase.id}`);
         return;
       }
 
@@ -75,11 +75,11 @@ export function Ingest() {
       } else {
         toast.success('Case created successfully without documents.');
         queryClient.invalidateQueries({ queryKey: ['cases'] });
-        navigate('/cases');
+        navigate(`/investigation/${newCase.id}`);
         return;
       }
       queryClient.invalidateQueries({ queryKey: ['cases'] });
-      navigate(`/fraud-reports/${newCase.id}`);
+      navigate(`/investigation/${newCase.id}`);
     },
     onError: (err) => {
       toast.error('Failed to create case', {

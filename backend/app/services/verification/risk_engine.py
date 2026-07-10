@@ -308,8 +308,13 @@ def analyze_document_pair(
     forensic1 = _trufor.analyze(primary_path)
     forensic2 = _trufor.analyze(secondary_path)
 
-    # Use the worse integrity score as the combined forensic signal
-    combined_integrity = min(forensic1['integrity_score'], forensic2['integrity_score'])
+    # Use the worse integrity score as the combined forensic signal.
+    # Guard against None — same as in analyze_document() single-doc path.
+    raw1 = forensic1.get('integrity_score')
+    raw2 = forensic2.get('integrity_score')
+    score1 = float(raw1) if raw1 is not None else 0.5
+    score2 = float(raw2) if raw2 is not None else 0.5
+    combined_integrity = min(score1, score2)
 
     metadata1 = _meta.analyze(primary_path)
     metadata2 = _meta.analyze(secondary_path)
@@ -361,7 +366,7 @@ def analyze_document_pair(
         trufor_score       = combined_forgery,
         ela_score          = combined_forgery,
         ocr_conflicts      = conflicts,
-        behavioral_score   = beh_result['anomaly_score'],
+        behavioral_score   = beh_result.risk_score,
         metadata_flags     = all_flags,
         rule_base_score    = rule_base_score,
         income_fraud_score = income_fraud_score,
