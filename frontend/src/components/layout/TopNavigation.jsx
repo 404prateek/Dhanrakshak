@@ -34,14 +34,7 @@ export function TopNavigation() {
       <div className="mx-auto flex h-[56px] max-w-[1440px] items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="flex flex-col items-end leading-none">
-              <span className="text-[18px] font-bold tracking-[-0.03em] text-[var(--canara-blue-700)]">Canara Bank</span>
-              <span className="text-[9px] italic text-slate-500">Together We Can</span>
-            </div>
-            <div className="relative h-8 w-8">
-              <div className="absolute left-1/2 top-1/2 h-0 w-0 -translate-x-1/2 -translate-y-1/2 border-l-[12px] border-l-transparent border-b-[24px] border-b-[var(--canara-gold)] border-r-[12px] border-r-transparent" />
-              <div className="absolute left-1/2 top-1/2 h-0 w-0 -translate-x-1/2 -translate-y-1/2 border-l-[6px] border-l-transparent border-b-[12px] border-b-white border-r-[6px] border-r-transparent opacity-90" />
-            </div>
+            <img src="/logo.png" alt="Dhanrakshak Logo" className="h-10 w-auto object-contain" />
           </div>
           <div className="h-7 w-px bg-slate-300" />
           <h1 className="text-[20px] font-bold tracking-[-0.03em] text-[var(--canara-blue-700)]">Fraud Detection Dashboard</h1>

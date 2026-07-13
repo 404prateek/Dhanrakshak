@@ -163,8 +163,8 @@ export function FraudReport() {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900">DhanRakshak</h2>
-                <p className="text-xs text-gray-500 uppercase tracking-widest font-medium">
-                  Fraud Intelligence Unit · Canara Bank
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Fraud Intelligence Unit · Dhanrakshak
                 </p>
               </div>
             </div>
