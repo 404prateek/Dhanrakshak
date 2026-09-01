@@ -39,14 +39,13 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Restrict to known origins. Add prod domain here when deploying.
+# Restrict to known origins. Add prod domain via EXTRA_CORS_ORIGINS env var.
 _ALLOWED_ORIGINS = [
     "http://localhost:5173",   # Vite dev
     "http://localhost:3000",   # CRA / Next dev (fallback)
     "http://127.0.0.1:5173",
+    *settings.get_allowed_origins(),  # Production/staging URLs from env var
 ]
-if settings.EXTRA_CORS_ORIGIN:
-    _ALLOWED_ORIGINS.append(settings.EXTRA_CORS_ORIGIN)
 
 app.add_middleware(
     CORSMiddleware,

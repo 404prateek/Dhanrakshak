@@ -1,7 +1,14 @@
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-const ML_BASE_URL = '/api/ml';
+
+// In production, the backend is on a different domain (Railway).
+// VITE_API_BASE_URL is e.g. https://dhanrakshak.up.railway.app/api/v1
+// ML routes live at /api/ml on the same backend host.
+const _backendBase = import.meta.env.VITE_API_BASE_URL
+  ? import.meta.env.VITE_API_BASE_URL.replace(/\/api\/v1\/?$/, '')
+  : '';
+const ML_BASE_URL = `${_backendBase}/api/ml`;
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -75,13 +82,16 @@ export const api = {
       const response = await apiClient.get('/cases/');
       return response.data;
     } catch (e) {
-      console.warn('Backend unavailable. Using mock cases.');
-      return [
-        { id: 1001, case_ref: 'CASE-2024-001', applicant_name: 'Rahul Sharma', property_address: '124 MG Road, Bangalore', status: 'Pending Review', risk_score: 85, created_at: new Date().toISOString() },
-        { id: 1002, case_ref: 'CASE-2024-002', applicant_name: 'Priya Patel', property_address: '45 Andheri West, Mumbai', status: 'Open', risk_score: 25, created_at: new Date().toISOString() },
-        { id: 1003, case_ref: 'CASE-2024-003', applicant_name: 'Amit Kumar', property_address: 'Sector 4, Dwarka, Delhi', status: 'Under Review', risk_score: 60, created_at: new Date(Date.now() - 86400000).toISOString() },
-        { id: 1004, case_ref: 'CASE-2024-004', applicant_name: 'Sneha Gupta', property_address: 'Koramangala, Bangalore', status: 'FRAUD_CONFIRMED', risk_score: 95, created_at: new Date(Date.now() - 172800000).toISOString() },
-      ];
+      if (e.code === 'ERR_NETWORK') {
+        console.warn('Backend unavailable. Using mock cases.');
+        return [
+          { id: 1001, case_ref: 'CASE-2024-001', applicant_name: 'Rahul Sharma', property_address: '124 MG Road, Bangalore', status: 'Pending Review', risk_score: 85, created_at: new Date().toISOString() },
+          { id: 1002, case_ref: 'CASE-2024-002', applicant_name: 'Priya Patel', property_address: '45 Andheri West, Mumbai', status: 'Open', risk_score: 25, created_at: new Date().toISOString() },
+          { id: 1003, case_ref: 'CASE-2024-003', applicant_name: 'Amit Kumar', property_address: 'Sector 4, Dwarka, Delhi', status: 'Under Review', risk_score: 60, created_at: new Date(Date.now() - 86400000).toISOString() },
+          { id: 1004, case_ref: 'CASE-2024-004', applicant_name: 'Sneha Gupta', property_address: 'Koramangala, Bangalore', status: 'FRAUD_CONFIRMED', risk_score: 95, created_at: new Date(Date.now() - 172800000).toISOString() },
+        ];
+      }
+      throw e;
     }
   },
   createCase: async (caseData) => {
@@ -89,8 +99,11 @@ export const api = {
       const response = await apiClient.post('/cases/', caseData);
       return response.data;
     } catch (e) {
-      console.warn('Backend unavailable. Returning mock new case.');
-      return { id: 1005, ...caseData, created_at: new Date().toISOString() };
+      if (e.code === 'ERR_NETWORK') {
+        console.warn('Backend unavailable. Returning mock new case.');
+        return { id: 1005, ...caseData, created_at: new Date().toISOString() };
+      }
+      throw e;
     }
   },
   updateCaseStatus: async (caseId, status) => {
@@ -286,8 +299,10 @@ export const runMLAnalysis = async (caseId, filePaths, behaviorData = {}) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 seconds timeout
   const token = localStorage.getItem('dhanrakshak_token') || '';
+  // Use absolute URL in production (backend on different domain)
+  const mlAnalyzeUrl = `${_backendBase}/api/ml/analyze`;
   try {
-    const response = await fetch('/api/ml/analyze', {
+    const response = await fetch(mlAnalyzeUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -329,8 +344,10 @@ export const runCrossDocAnalysis = async (caseId, primaryPath, secondaryPath) =>
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300000);
   const token = localStorage.getItem('dhanrakshak_token') || '';
+  // Use absolute URL in production (backend on different domain)
+  const mlPairUrl = `${_backendBase}/api/ml/analyze-pair`;
   try {
-    const response = await fetch('/api/ml/analyze-pair', {
+    const response = await fetch(mlPairUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

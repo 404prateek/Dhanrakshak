@@ -1,0 +1,42 @@
+# Docker build context exclusions
+# ─── Python ───────────────────────────────────────────────────────────────────
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/.venv/
+**/venv/
+**/.env
+backend/.env
+**/*.egg-info/
+
+# ─── Node.js (frontend is built separately on Vercel) ─────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
+
+# ─── Database files (don't ship local DBs into the container) ─────────────────
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# ─── Storage uploads (generated at runtime) ───────────────────────────────────
+storage/
+backend/storage/
+
+# ─── Git & IDE ────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# ─── ML model checkpoints (downloaded at runtime by the engine) ───────────────
+**/*.pth
+**/*.onnx
+**/*.bin
+TruFor/
+
+# ─── Logs & temp ──────────────────────────────────────────────────────────────
+**/*.log
+**/tmp/
