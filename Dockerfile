@@ -24,12 +24,14 @@ RUN pip install --no-cache-dir -r ml_requirements.txt
 COPY . .
 
 # Set environment variables
+# /app/backend first so `from app.X import Y` resolves to /app/backend/app/
+# /app second so `from ml_engine.X import Y` resolves to /app/ml_engine/
+ENV PYTHONPATH=/app/backend:/app
 ENV ENV=production
-ENV PYTHONPATH=/app
 
 # Expose the port FastAPI runs on
 EXPOSE 8000
 
 # Start the application
-# WORKDIR is /app, so Python path is /app/backend/app/main.py → module is backend.app.main
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# PYTHONPATH=/app/backend:/app so `app.main:app` finds /app/backend/app/main.py
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

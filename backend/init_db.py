@@ -16,17 +16,15 @@ Environment variables required:
 import sys
 import os
 
-# Ensure the project root is in the Python path
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-if os.path.join(_ROOT, "backend") not in sys.path:
-    sys.path.insert(0, os.path.join(_ROOT, "backend"))
+# Match Docker PYTHONPATH: /app/backend:/app
+# Locally: add <project>/backend and <project> to sys.path
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))         # .../backend/
+_PROJECT_ROOT = os.path.dirname(_THIS_DIR)                      # .../DHANRAKSHAK/
 
-# Also support running from /app (Docker WORKDIR)
-for p in ["/app", "/app/backend"]:
+for p in [_THIS_DIR, _PROJECT_ROOT, "/app/backend", "/app"]:
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
+
 
 from app.database.session import SessionLocal, engine
 from app.database.base import Base
